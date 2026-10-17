@@ -131,10 +131,14 @@ async function main() {
     default:
       throw new Error(`Unknown command "${command}".\n${usage}`)
   }
+  return papp
 }
 
 main().then(
-  () => process.exit(0), // the library keeps polling while open; a CLI exits when its command is done
+  async papp => {
+    await papp?.close() // syncs what is pending and stops polling, so the process can end
+    process.exit(0)
+  },
   err => {
     if (err instanceof SyncError && err.code === "no-app") {
       console.error(`${err.message}\nCreate the app once with: pappdrive apps create ${APP}`)
