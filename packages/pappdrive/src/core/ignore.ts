@@ -7,9 +7,11 @@
 //   2. Otherwise every .pappignore from the top folder down to the path's folder is consulted, top first.
 //      The last rule that matches the path itself wins: a deeper file overrides a higher one,
 //      and a later line overrides an earlier one.
-// "Matches the path itself" means without the parent check of step 1, which this file does across
-// all .pappignore files together. The `ignore` package only does it within one file.
-import ignore, { type Ignore } from "ignore"
+// Step 1 has to run across all .pappignore files together, so this file does it. The `ignore`
+// package's public calls also do it, but within one file only, which is wrong when a deeper file
+// re-includes a folder a higher one excluded. So each file's rules are tested against the path
+// itself through the package's rule list, without its parent check.
+import ignore from "ignore"
 import { HIDDEN_DIR, parentOf } from "./paths.js"
 
 export const IGNORE_FILE = ".pappignore"
@@ -26,27 +28,16 @@ export interface IgnoreFile {
 
 interface Level {
   dir: string
-  depth: number
   key: string // lowercased dir, for matching
-  ig: Ignore
+  depth: number
+  rules: RuleList
   lines: string[]
   negations: string[] // lines starting with "!", without the "!"
 }
 
-interface TestResult {
-  ignored: boolean
-  unignored: boolean
-}
-
-/**
- * Tests the rules of one file against the path itself, without the package's own parent check.
- * Uses the package's internal rule list when there (ignore 5 to 7); else falls back to `test`,
- * which only differs when a folder excluded in this file is re-included by a deeper file.
- */
-function ownTest(ig: Ignore, path: string): TestResult {
-  const rules = (ig as unknown as { _rules?: { test?: (p: string, unignored: boolean, mode: string) => TestResult } })._rules
-  if (rules && typeof rules.test === "function") return rules.test(path, true, "regex")
-  return ig.test(path)
+// The `ignore` package's internal rule list (ignore 7). Its test() matches one path, no parents.
+interface RuleList {
+  test(path: string, checkUnignored: boolean, mode: "regex"): { ignored: boolean; unignored: boolean }
 }
 
 export class IgnoreRules {
@@ -55,15 +46,21 @@ export class IgnoreRules {
 
   constructor(files: IgnoreFile[] = []) {
     const byDir = new Map(files.map((f) => [f.dir, f.content]))
-    if (!byDir.has("")) byDir.set("", "")
+    if (!byDir.has("")) byDir.set("", "") // the top level carries the soft defaults
     this.levels = [...byDir.entries()]
       .map(([dir, content]) => {
-        const lines = content.split(/\r?\n/)
         const ig = ignore({ ignorecase: true })
         if (dir === "") ig.add(SOFT_DEFAULTS)
         ig.add(content)
-        const negations = lines.filter((x) => x.startsWith("!")).map((x) => x.slice(1))
-        return { dir, depth: depth(dir), key: dir.toLowerCase(), ig, lines, negations }
+        const lines = content.split(/\r?\n/)
+        return {
+          dir,
+          key: dir.toLowerCase(),
+          depth: dir === "" ? 0 : dir.split("/").length,
+          rules: (ig as unknown as { _rules: RuleList })._rules,
+          lines,
+          negations: lines.filter((x) => x.startsWith("!")).map((x) => x.slice(1)),
+        }
       })
       // Top folder first, then deeper ones: a deeper file overrides, the way git does.
       .sort((a, b) => a.depth - b.depth)
@@ -84,23 +81,23 @@ export class IgnoreRules {
   }
 
   private dirIgnored(dir: string): boolean {
-    let r = this.dirCache.get(dir)
-    if (r === undefined) {
-      r = this.ignores(dir, true)
-      this.dirCache.set(dir, r)
+    let ignored = this.dirCache.get(dir)
+    if (ignored === undefined) {
+      ignored = this.ignores(dir, true)
+      this.dirCache.set(dir, ignored)
     }
-    return r
+    return ignored
   }
 
+  /** The rules of every .pappignore above the path, against the path itself; the last match wins. */
   private ownMatch(path: string, isDir: boolean): boolean {
     const segs = path.split("/")
     const key = path.toLowerCase()
     let ignored = false
     for (const level of this.levels) {
-      if (!isInside(key, level.key)) continue
+      if (level.key !== "" && !key.startsWith(level.key + "/")) continue
       const rel = segs.slice(level.depth).join("/")
-      if (rel === "") continue
-      const r = ownTest(level.ig, isDir ? rel + "/" : rel)
+      const r = level.rules.test(isDir ? rel + "/" : rel, true, "regex")
       if (r.ignored) ignored = true
       else if (r.unignored) ignored = false
     }
@@ -121,7 +118,7 @@ export class IgnoreRules {
     if (!this.nodeModulesReincluded()) globs.push("node_modules", "**/node_modules", "**/node_modules/**")
     for (const level of this.levels) {
       if (/[*?[\]{}()!+@\\]/.test(level.dir)) continue // a folder name that would read as a glob
-      const below = this.levels.filter((l) => isInside(l.key + "/", level.key) || l.key === level.key)
+      const below = this.levels.filter((l) => level.key === "" || l.key === level.key || l.key.startsWith(level.key + "/"))
       if (below.some((l) => l.negations.length > 0)) continue
       const prefix = level.dir ? level.dir + "/" : ""
       for (const raw of level.lines) {
@@ -140,20 +137,10 @@ export class IgnoreRules {
 
   /** Could any "!" rule re-include a node_modules folder? Then the watcher must look inside. */
   private nodeModulesReincluded(): boolean {
-    for (const level of this.levels) {
-      if (level.negations.length === 0) continue
+    return this.levels.some((level) => {
+      if (level.negations.length === 0) return false
       const ig = ignore({ ignorecase: true }).add(level.negations)
-      if (["node_modules/", "a/node_modules/", "a/b/node_modules/"].some((p) => ig.ignores(p))) return true
-    }
-    return false
+      return ["node_modules/", "a/node_modules/", "a/b/node_modules/"].some((p) => ig.ignores(p))
+    })
   }
-}
-
-function depth(dir: string): number {
-  return dir === "" ? 0 : dir.split("/").length
-}
-
-/** `key` and `dirKey` are lowercased. True when `key` is inside the folder `dirKey` ("" is the top). */
-function isInside(key: string, dirKey: string): boolean {
-  return dirKey === "" || key.startsWith(dirKey + "/")
 }

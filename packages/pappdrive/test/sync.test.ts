@@ -1,29 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest"
-import type { DataKeys } from "../src/core/crypto.js"
+import { buf } from "../src/core/bytes.js"
 import { blobId } from "../src/core/crypto.js"
 import { SyncError } from "../src/core/errors.js"
-import { buf } from "../src/core/bytes.js"
-import { device, newKeys, PS, text, type Device, type DeviceOptions } from "./helpers/device.js"
+import { closeDevices, device, PS, setup, type Device } from "./helpers/device.js"
 import { MemFs } from "./helpers/memfs.js"
-import { FakeServer } from "./helpers/server.js"
 
-const open: Device[] = []
-async function dev(server: FakeServer, keys: DataKeys, o: DeviceOptions = {}, start = true): Promise<Device> {
-  const d = await device(server, keys, o, start)
-  open.push(d)
-  return d
-}
-afterEach(async () => {
-  for (const d of open.splice(0)) await d.folder.close()
-})
-
-async function setup(n = 2, o: DeviceOptions = {}) {
-  const server = new FakeServer()
-  const keys = await newKeys()
-  const devs: Device[] = []
-  for (let i = 0; i < n; i++) devs.push(await dev(server, keys, o))
-  return { server, keys, devs }
-}
+afterEach(closeDevices)
 
 const conflictCopies = (fs: MemFs) => fs.paths().filter((p) => p.includes("(conflict "))
 
@@ -81,7 +63,7 @@ describe("two devices", () => {
   })
 
   it("both change a file: the server keeps the path, this device's version becomes a conflict copy", async () => {
-    const { keys, devs } = await setup()
+    const { devs } = await setup()
     const [a, b] = devs as [Device, Device]
     await a.folder.write("todo.md", "v1")
     await a.folder.sync()
@@ -100,7 +82,6 @@ describe("two devices", () => {
     // the copy is an ordinary file: it reaches A
     await a.folder.sync()
     expect(a.fs.text(copies[0]!)).toBe("from b")
-    void keys
   })
 
   it("both new with the same contents is not a conflict; different contents is", async () => {
@@ -238,10 +219,9 @@ describe("a file and a folder with the same name", () => {
 
 describe("capital letters", () => {
   it("a case-insensitive device sees two new spellings as one path: a conflict, not two files", async () => {
-    const server = new FakeServer()
-    const keys = await newKeys()
-    const linux = await dev(server, keys)
-    const mac = await dev(server, keys, { caseInsensitive: true })
+    const { server, keys } = await setup(0)
+    const linux = await device(server, keys)
+    const mac = await device(server, keys, { caseInsensitive: true })
     await linux.folder.write("Todo.md", "linux")
     await linux.folder.sync()
     await mac.folder.write("todo.md", "mac")
@@ -252,12 +232,11 @@ describe("capital letters", () => {
   })
 
   it("a case-sensitive disk with two spellings syncs the first and reports the second", async () => {
-    const server = new FakeServer()
-    const keys = await newKeys()
+    const { server, keys } = await setup(0)
     const fs = new MemFs({ kind: "visible" })
     fs.put("Todo.md", "first")
     fs.put("todo.md", "second")
-    const a = await dev(server, keys, { fs })
+    const a = await device(server, keys, { fs })
     const body = await server.body(keys)
     expect(Object.keys(body)).toHaveLength(1)
     const dup = a.changes.find((c) => c.origin === "case-duplicate")!
@@ -275,15 +254,13 @@ describe("capital letters", () => {
   })
 
   it("a change of capitals only is a rename that syncs", async () => {
-    const server = new FakeServer()
-    const keys = await newKeys()
-    const a = await dev(server, keys, { kind: "visible" })
-    const mac = await dev(server, keys, { caseInsensitive: true })
+    const { server, keys } = await setup(0)
+    const a = await device(server, keys, { kind: "visible" })
+    const mac = await device(server, keys, { caseInsensitive: true })
     await a.folder.write("todo.md", "x")
     await a.folder.sync()
     await mac.folder.sync()
     await a.fs.move("todo.md", "TODO.md") // another program renames it
-    ;(a.folder as unknown as { engine: { needsFullScan: boolean } }).engine.needsFullScan = true
     await a.folder.sync()
     await mac.folder.sync()
     expect(mac.fs.paths()).toEqual(["TODO.md"])
@@ -293,10 +270,9 @@ describe("capital letters", () => {
 
 describe("skipped paths", () => {
   it("a name this system cannot create freezes the path everywhere", async () => {
-    const server = new FakeServer()
-    const keys = await newKeys()
-    const mac = await dev(server, keys)
-    const win = await dev(server, keys, { canCreate: (s) => !s.includes(":") })
+    const { server, keys } = await setup(0)
+    const mac = await device(server, keys)
+    const win = await device(server, keys, { canCreate: (s) => !s.includes(":") })
     await mac.folder.write("a:b.md", "v1")
     await mac.folder.write("ok.md", "fine")
     await mac.folder.sync()
@@ -317,12 +293,11 @@ describe("skipped paths", () => {
   })
 
   it("a bad name made by another program is skipped, never uploaded", async () => {
-    const server = new FakeServer()
-    const keys = await newKeys()
+    const { server, keys } = await setup(0)
     const fs = new MemFs({ kind: "visible" })
     fs.put("bad\u0001name.md", "x")
     fs.put("good.md", "y")
-    const a = await dev(server, keys, { fs })
+    const a = await device(server, keys, { fs })
     expect(Object.keys(await server.body(keys))).toEqual(["good.md"])
     expect(a.folder.status.skipped).toEqual(["bad\u0001name.md"])
     expect(a.changes).toContainEqual({ path: "bad\u0001name.md", origin: "skipped", reason: "bad name" })
@@ -342,7 +317,7 @@ describe("missing local state", () => {
     fs.put("same.md", "same")
     fs.put("diff.md", "local")
     fs.put("only-local.md", "l")
-    const b = await dev(server, keys, { fs })
+    const b = await device(server, keys, { fs })
     expect(fs.text("same.md")).toBe("same")
     expect(fs.text("diff.md")).toBe("server")
     expect(fs.text("only-server.md")).toBe("s")
@@ -361,7 +336,7 @@ describe("missing local state", () => {
     await a.folder.sync()
     await a.folder.close()
     a.fs.state.clear()
-    const again = await dev(server, keys, { fs: a.fs })
+    const again = await device(server, keys, { fs: a.fs })
     expect(Object.keys(await server.body(keys))).toEqual(["x.md"])
     expect(again.changes.filter((c) => c.origin === "conflict")).toEqual([])
   })
@@ -440,7 +415,7 @@ describe("big files", () => {
     await fs.tempAppend(e.id, data.slice(0, PS + 10))
     const fetched: string[] = []
     server.beforeBlobGet = (id) => void fetched.push(id)
-    await dev(server, keys, { fs })
+    await device(server, keys, { fs })
     expect(fetched).toEqual(e.parts!.slice(1))
     expect(fs.files.get("big.bin")!.data).toEqual(data)
     expect(fs.temps.size).toBe(0)
@@ -461,13 +436,9 @@ describe("commits", () => {
     const [a, b] = devs as [Device, Device]
     await a.folder.write("a.md", "a")
     await b.folder.write("b.md", "b")
-    let sneaked = false
     server.beforeCommit = async () => {
-      if (sneaked) return
-      sneaked = true
       server.beforeCommit = null
       await b.folder.sync() // B commits first
-      server.beforeCommit = null
     }
     await a.folder.sync()
     expect(Object.keys(await server.body(keys)).sort()).toEqual(["a.md", "b.md"])
@@ -540,9 +511,8 @@ describe("failures and deletion", () => {
   })
 
   it("a deleted folder stops syncing and deletes the hidden folder", async () => {
-    const server = new FakeServer()
-    const keys = await newKeys()
-    const a = await dev(server, keys, { kind: "visible", gone: "app" })
+    const { server, keys } = await setup(0)
+    const a = await device(server, keys, { kind: "visible", gone: "app" })
     await a.folder.write("a.md", "x")
     await a.folder.sync()
     const statuses: (string | null)[] = []
@@ -571,15 +541,14 @@ describe("failures and deletion", () => {
 
 describe("read-only folders", () => {
   it("mirror the server and refuse writes", async () => {
-    const server = new FakeServer()
-    const keys = await newKeys()
-    const a = await dev(server, keys)
-    const r0 = await dev(server, keys, { readOnly: true })
+    const { server, keys } = await setup(0)
+    const a = await device(server, keys)
+    const r0 = await device(server, keys, { readOnly: true })
     expect(r0.folder.status.error).toBeNull() // a missing index is an empty folder
     await a.folder.write("todo.md", "x")
     await a.folder.write("old.md", "y")
     await a.folder.sync()
-    const r = await dev(server, keys, { readOnly: true })
+    const r = await device(server, keys, { readOnly: true })
     expect(await r.folder.readText("todo.md")).toBe("x")
     await expect(r.folder.write("n.md", "z")).rejects.toMatchObject({ code: "read-only" })
     await expect(r.folder.remove("todo.md")).rejects.toMatchObject({ code: "read-only" })
@@ -600,8 +569,7 @@ describe("read-only folders", () => {
 
 describe("opening", () => {
   it("refuses a visible folder with another app's folder inside it", async () => {
-    const server = new FakeServer()
-    const keys = await newKeys()
+    const { server, keys } = await setup(0)
     const fs = new MemFs({ kind: "visible" })
     fs.dirs.set("sub/.pappdrive", "sub/.pappdrive")
     const d = await device(server, keys, { fs }, false)
@@ -609,8 +577,7 @@ describe("opening", () => {
   })
 
   it("refuses a folder that belongs to another app", async () => {
-    const server = new FakeServer()
-    const keys = await newKeys()
+    const { server, keys } = await setup(0)
     const fs = new MemFs({ kind: "visible" })
     fs.state.set("app", "journal")
     const d = await device(server, keys, { fs }, false)
@@ -629,7 +596,7 @@ describe("opening", () => {
     expect(a.fs.state.get("app")).toBe("notes")
     const synced = JSON.parse(a.fs.state.get("synced")!)
     expect(synced.v).toBe(1)
-    expect(synced.files["a.md"].id).toBe(await blobId(keys, text("x")))
+    expect(synced.files["a.md"].id).toBe(await blobId(keys, new TextEncoder().encode("x")))
     expect(JSON.parse(a.fs.state.get("disk")!).files["a.md"].size).toBe(1)
   })
 })

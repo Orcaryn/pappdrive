@@ -1,16 +1,28 @@
 // One test device: an in-memory folder synced through a fake server.
 import type { GoneReason } from "@pappdrive/protocol"
-import { dataKeys, newDataKey, type DataKeys } from "../../src/core/crypto.js"
+import { dataKeys, randomBytes, type DataKeys } from "../../src/core/crypto.js"
 import { openFolder } from "../../src/core/folder.js"
-import type { Tuning } from "../../src/core/sync.js"
+import type { Tuning } from "../../src/core/folder.js"
 import type { Change, Coordinator, Folder, FolderContext, Platform, Watcher } from "../../src/core/types.js"
 import { MemFs, type MemFsOptions } from "./memfs.js"
-import type { FakeServer } from "./server.js"
+import { FakeServer } from "./server.js"
 
 export const PS = 1024 // part size in tests
 
-export function newKeys(): Promise<DataKeys> {
-  return dataKeys(newDataKey())
+/** A server, the data keys, and `n` started devices. */
+export async function setup(n = 2, o: DeviceOptions = {}): Promise<{ server: FakeServer; keys: DataKeys; devs: Device[] }> {
+  const server = new FakeServer()
+  const keys = await dataKeys(randomBytes(32))
+  const devs: Device[] = []
+  for (let i = 0; i < n; i++) devs.push(await device(server, keys, o))
+  return { server, keys, devs }
+}
+
+const opened: Device[] = []
+
+/** Closes every device opened since the last call. For afterEach. */
+export async function closeDevices(): Promise<void> {
+  for (const d of opened.splice(0)) await d.folder.close()
 }
 
 export interface DeviceOptions extends MemFsOptions {
@@ -65,11 +77,11 @@ export async function device(server: FakeServer, keys: DataKeys, o: DeviceOption
   folder = openFolder(ctx, { pollMs: 0, partSize: PS, quietMs: 60_000, maxWaitMs: 60_000, ...o.tuning })
   const changes: Change[] = []
   folder.watch((c) => changes.push(c))
+  const d = { fs, folder, changes, gone, ctx }
+  opened.push(d)
   if (start) {
     await folder.start()
     await folder.sync()
   }
-  return { fs, folder, changes, gone, ctx }
+  return d
 }
-
-export const text = (s: string) => new TextEncoder().encode(s)

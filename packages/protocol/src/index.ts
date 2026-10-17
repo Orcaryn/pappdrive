@@ -23,8 +23,6 @@ export interface Argon2Params {
   p: number
 }
 export const DEFAULT_ARGON2: Argon2Params = { m: 65536, t: 3, p: 4 }
-export const ARGON2_HASH_LENGTH = 32
-export const SALT_PREFIX = "pappdrive|"
 
 // Times
 export const ACCESS_TOKEN_SECONDS = 3600
@@ -98,9 +96,6 @@ export interface AccessClaims {
 }
 
 // Routes (paths below API_PREFIX)
-export interface ParamsRequest {
-  email: string
-}
 export type ParamsResponse = Argon2Params
 
 export interface SignupRequest {
@@ -154,9 +149,6 @@ export interface AppInfo {
   name: string
   created: number // ms since epoch
 }
-export interface CreateAppRequest {
-  name: string
-}
 
 export interface UploadItem {
   id: string
@@ -188,15 +180,6 @@ export interface CommitResponse {
   etag: string
 }
 
-export interface DeleteAppRequest {
-  email: string
-  app: string
-  loginKey: string
-}
-export interface DeleteAccountRequest {
-  email: string
-  loginKey: string
-}
 
 // R2 keys
 export const keys = {

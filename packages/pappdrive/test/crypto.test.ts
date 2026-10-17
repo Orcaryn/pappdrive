@@ -3,7 +3,7 @@ import * as c from "../src/core/crypto.js"
 
 describe("crypto", () => {
   it("round-trips blobs, bodies, locked copies and recovery codes", async () => {
-    const keys = await c.dataKeys(c.newDataKey())
+    const keys = await c.dataKeys(c.randomBytes(32))
     const pt = new TextEncoder().encode("hello")
     const id = await c.blobId(keys, pt)
     expect(id).toMatch(/^[0-9a-f]{64}$/)
@@ -14,7 +14,7 @@ describe("crypto", () => {
     expect(await c.decodeBody(keys, await c.encodeBody(keys, body))).toEqual(body)
     const lock = c.randomBytes(32)
     expect(await c.unlockDataKey(await c.lockDataKey(keys.raw, lock), lock)).toEqual(keys.raw)
-    const code = c.newRecoveryCode()
+    const code = c.randomBytes(16)
     const text = c.formatRecoveryCode(code)
     expect(text).toMatch(/^[0-9A-Z]{5}(-[0-9A-Z]{5}){3}-[0-9A-Z]{6}$/)
     expect(c.parseRecoveryCode(text.toLowerCase())).toEqual(code)

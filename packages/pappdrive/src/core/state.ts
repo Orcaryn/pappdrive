@@ -1,10 +1,11 @@
-// Local state in the hidden folder: disk, synced, uploaded, app. See spec 05-client.md, Local state.
+// The three states of spec 05-client.md, Local state: disk and synced, stored in the hidden folder, and the
+// server index as last fetched, in memory only. Plus the blobs this device uploaded but has not committed yet.
 // disk and synced are stored in the index body format: { v: 1, files: { <path>: IndexEntry } }.
-// In memory both are keyed by pathKey (NFC + lowercase), so the decision table matches paths without capitals.
-import type { IndexEntry } from "@pappdrive/protocol"
+// In memory every map is keyed by pathKey (NFC + lowercase), so the decision table matches paths without capitals.
+import type { IndexBody, IndexEntry } from "@pappdrive/protocol"
 import { SWEEP_GRACE_MS } from "@pappdrive/protocol"
-import type { FsAdapter } from "./types.js"
 import { pathKey } from "./paths.js"
+import type { FsAdapter } from "./types.js"
 
 /** A path as spelled in its own place (disk, synced or server), with its entry. */
 export interface Rec {
@@ -18,47 +19,36 @@ export interface DiskRec extends Rec {
   skipped?: "bad name"
 }
 
+/** The server index as last fetched. */
+export interface ServerView {
+  etag: string | null
+  header: Record<string, number>
+  body: IndexBody
+  /** The body by pathKey. Two spellings of one path: the first one sorted wins. */
+  map: Map<string, Rec>
+}
+
+export function serverView(etag: string | null, header: Record<string, number>, body: IndexBody): ServerView {
+  const map = new Map<string, Rec>()
+  for (const path of Object.keys(body).sort()) {
+    const key = pathKey(path)
+    if (!map.has(key)) map.set(key, { path, entry: body[path]! })
+  }
+  return { etag, header, body, map }
+}
+
 const STATE_VERSION = 1
 /** Uploaded blobs count as stored for a little less than the sweep's grace, so a commit has time to land. */
-export const UPLOADED_TRUST_MS = SWEEP_GRACE_MS - 3600_000
-
-interface FilesFile {
-  v: number
-  files: Record<string, IndexEntry & { skipped?: "bad name" }>
-}
-
-function parseFiles(text: string | null): Map<string, DiskRec> {
-  const out = new Map<string, DiskRec>()
-  if (!text) return out
-  let data: FilesFile
-  try {
-    data = JSON.parse(text) as FilesFile
-  } catch {
-    return out // a broken state file counts as missing, which is always safe
-  }
-  if (!data || data.v !== STATE_VERSION || typeof data.files !== "object") return out
-  for (const [path, e] of Object.entries(data.files)) {
-    if (!e || typeof e.id !== "string") continue
-    const { skipped, ...entry } = e
-    const rec: DiskRec = { path, entry }
-    if (skipped) rec.skipped = skipped
-    out.set(pathKey(path), rec)
-  }
-  return out
-}
-
-function serializeFiles(map: Map<string, DiskRec>): string {
-  const files: FilesFile["files"] = {}
-  for (const rec of map.values()) files[rec.path] = rec.skipped ? { ...rec.entry, skipped: rec.skipped } : rec.entry
-  return JSON.stringify({ v: STATE_VERSION, files })
-}
+const UPLOADED_TRUST_MS = SWEEP_GRACE_MS - 3600_000
 
 export class LocalState {
   disk = new Map<string, DiskRec>()
   synced = new Map<string, Rec>()
+  server: ServerView | null = null
   /** Blob id -> when this device uploaded it. Dropped once a commit includes it. */
-  uploaded = new Map<string, number>()
+  private uploaded = new Map<string, number>()
   private dirty = { disk: false, synced: false, uploaded: false }
+  private flushing: Promise<void> = Promise.resolve()
 
   constructor(
     private readonly fs: FsAdapter,
@@ -67,38 +57,15 @@ export class LocalState {
 
   async load(): Promise<void> {
     this.disk = parseFiles(await this.fs.loadState("disk"))
-    const synced = parseFiles(await this.fs.loadState("synced"))
-    this.synced = new Map([...synced].map(([k, r]) => [k, { path: r.path, entry: r.entry }]))
-    this.uploaded = new Map()
-    const up = await this.fs.loadState("uploaded")
-    if (up) {
-      try {
-        const data = JSON.parse(up) as { v: number; blobs: Record<string, number> }
-        const cutoff = this.now() - UPLOADED_TRUST_MS
-        for (const [id, t] of Object.entries(data.blobs ?? {})) if (t > cutoff) this.uploaded.set(id, t)
-      } catch {
-        // missing list: blobs upload again, R2 answers "already stored"
-      }
-    }
+    this.synced = parseFiles(await this.fs.loadState("synced"))
+    const blobs = parseState<{ blobs: Record<string, number> }>(await this.fs.loadState("uploaded"))?.blobs ?? {}
+    const cutoff = this.now() - UPLOADED_TRUST_MS
+    this.uploaded = new Map(Object.entries(blobs).filter(([, t]) => t > cutoff))
   }
 
-  /** The app this folder belongs to, or null for a new folder. */
-  async loadApp(): Promise<string | null> {
-    const text = await this.fs.loadState("app")
-    if (text === null) return null
-    const t = text.trim()
-    if (t.startsWith("{")) {
-      try {
-        return String((JSON.parse(t) as { app: string }).app)
-      } catch {
-        return t
-      }
-    }
-    return t
-  }
-
-  saveApp(app: string): Promise<void> {
-    return this.fs.saveState("app", app)
+  /** In synced or in the server index: such a path is never ignored (the git rule). */
+  isKnown(key: string): boolean {
+    return this.synced.has(key) || !!this.server?.map.has(key)
   }
 
   setDisk(rec: DiskRec): void {
@@ -113,7 +80,7 @@ export class LocalState {
     this.dirty.disk = true
   }
   setSynced(rec: Rec): void {
-    this.synced.set(pathKey(rec.path), { path: rec.path, entry: rec.entry })
+    this.synced.set(pathKey(rec.path), rec)
     this.dirty.synced = true
   }
   deleteSynced(key: string): void {
@@ -131,8 +98,6 @@ export class LocalState {
     const t = this.uploaded.get(id)
     return t !== undefined && t > this.now() - UPLOADED_TRUST_MS
   }
-
-  private flushing: Promise<void> = Promise.resolve()
 
   /** Writes whatever changed. Each file is replaced atomically by the adapter. One flush at a time. */
   flush(): Promise<void> {
@@ -155,4 +120,26 @@ export class LocalState {
       await this.fs.saveState("uploaded", JSON.stringify({ v: STATE_VERSION, blobs: Object.fromEntries(this.uploaded) }))
     }
   }
+}
+
+function parseState<T>(text: string | null): T | null {
+  if (text === null) return null
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    return null // a broken state file counts as missing, which is always safe
+  }
+}
+
+function parseFiles(text: string | null): Map<string, DiskRec> {
+  const files = parseState<{ files: Record<string, IndexEntry & { skipped?: "bad name" }> }>(text)?.files ?? {}
+  const out = new Map<string, DiskRec>()
+  for (const [path, { skipped, ...entry }] of Object.entries(files)) out.set(pathKey(path), skipped ? { path, entry, skipped } : { path, entry })
+  return out
+}
+
+function serializeFiles(map: Map<string, DiskRec>): string {
+  const files: Record<string, IndexEntry & { skipped?: "bad name" }> = {}
+  for (const rec of map.values()) files[rec.path] = rec.skipped ? { ...rec.entry, skipped: rec.skipped } : rec.entry
+  return JSON.stringify({ v: STATE_VERSION, files })
 }

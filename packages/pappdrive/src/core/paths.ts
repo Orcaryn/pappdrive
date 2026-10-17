@@ -48,32 +48,22 @@ export function baseName(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1)
 }
 
-function stampOf(when: Date): string {
+/**
+ * `todo.md` -> `todo (conflict 2026-10-17 09-15-30).md`; a counter is added when the name is taken.
+ * A folder keeps its whole name: `notes.v2` -> `notes.v2 (conflict 2026-10-17 09-15-30)`.
+ */
+export function conflictName(path: string, when: Date, taken: (key: string) => boolean, isFolder = false): string {
   const pad = (n: number) => String(n).padStart(2, "0")
-  return (
+  const stamp =
     `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())} ` +
     `${pad(when.getHours())}-${pad(when.getMinutes())}-${pad(when.getSeconds())}`
-  )
-}
-
-function freeName(path: string, splitExt: boolean, when: Date, taken: (key: string) => boolean): string {
   const dir = parentOf(path)
   const base = baseName(path)
-  const dot = splitExt ? base.lastIndexOf(".") : -1
+  const dot = isFolder ? -1 : base.lastIndexOf(".")
   const [stem, ext] = dot > 0 ? [base.slice(0, dot), base.slice(dot)] : [base, ""]
   for (let n = 1; ; n++) {
-    const name = `${stem} (conflict ${stampOf(when)}${n > 1 ? ` ${n}` : ""})${ext}`
+    const name = `${stem} (conflict ${stamp}${n > 1 ? ` ${n}` : ""})${ext}`
     const full = dir ? `${dir}/${name}` : name
     if (!taken(pathKey(full))) return full
   }
-}
-
-/** `todo.md` -> `todo (conflict 2026-10-17 09-15-30).md`; a counter is added when the name is taken. */
-export function conflictName(path: string, when: Date, taken: (key: string) => boolean): string {
-  return freeName(path, true, when, taken)
-}
-
-/** Folder conflict name, no extension split: `notes` -> `notes (conflict 2026-10-17 09-15-30)`. */
-export function conflictDirName(path: string, when: Date, taken: (key: string) => boolean): string {
-  return freeName(path, false, when, taken)
 }

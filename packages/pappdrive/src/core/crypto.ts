@@ -1,19 +1,14 @@
 // All crypto. WebCrypto everywhere, except Argon2id (hash-wasm).
 // See spec 07-encryption.md and 12-implementation.md, Crypto and Formats.
 import { argon2id } from "hash-wasm"
-import {
-  ARGON2_HASH_LENGTH,
-  type Argon2Params,
-  type IndexBody,
-  normalizeEmail,
-  SALT_PREFIX,
-} from "@pappdrive/protocol"
+import { type Argon2Params, type IndexBody, normalizeEmail } from "@pappdrive/protocol"
 import { buf, concat, fromBase64, fromUtf8, toBase64, toHex, fromHex, utf8 } from "./bytes.js"
 import { SyncError } from "./errors.js"
 
 const subtle = globalThis.crypto.subtle
 const BLOB_VERSION = 1
 const COPY_VERSION = 1
+const HMAC = { name: "HMAC", hash: "SHA-256" }
 
 export function randomBytes(n: number): Uint8Array {
   return globalThis.crypto.getRandomValues(new Uint8Array(n))
@@ -33,30 +28,18 @@ async function hkdf(ikm: Uint8Array, info: string): Promise<Uint8Array> {
   return new Uint8Array(bits)
 }
 
-function aesKey(raw: Uint8Array): Promise<CryptoKey> {
-  return subtle.importKey("raw", buf(raw), "AES-GCM", false, ["encrypt", "decrypt"])
-}
-
-function hmacKey(raw: Uint8Array): Promise<CryptoKey> {
-  return subtle.importKey("raw", buf(raw), { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
-}
-
 // ---------- Password and recovery code ----------
 
-export interface PasswordKeys {
-  loginKey: Uint8Array // sent to the server
-  passwordKey: Uint8Array // locks the password copy, never leaves the device
-}
-
-export async function deriveFromPassword(email: string, password: string, params: Argon2Params): Promise<PasswordKeys> {
-  const salt = await sha256(utf8.encode(SALT_PREFIX + normalizeEmail(email)))
+/** loginKey is sent to the server. passwordKey locks the password copy and never leaves the device. */
+export async function deriveFromPassword(email: string, password: string, params: Argon2Params) {
+  const salt = await sha256(utf8.encode("pappdrive|" + normalizeEmail(email)))
   const out = await argon2id({
     password: password.normalize("NFC"),
     salt,
     parallelism: params.p,
     iterations: params.t,
     memorySize: params.m,
-    hashLength: ARGON2_HASH_LENGTH,
+    hashLength: 32,
     outputType: "binary",
   })
   return {
@@ -65,12 +48,7 @@ export async function deriveFromPassword(email: string, password: string, params
   }
 }
 
-export interface RecoveryKeys {
-  recoveryLoginKey: Uint8Array
-  recoveryKey: Uint8Array
-}
-
-export async function deriveFromRecovery(code: Uint8Array): Promise<RecoveryKeys> {
+export async function deriveFromRecovery(code: Uint8Array) {
   return {
     recoveryLoginKey: await hkdf(code, "pappdrive recovery login key"),
     recoveryKey: await hkdf(code, "pappdrive recovery key"),
@@ -79,10 +57,6 @@ export async function deriveFromRecovery(code: Uint8Array): Promise<RecoveryKeys
 
 // Recovery code: 128 random bits as 26 Crockford base32 characters, in groups 5-5-5-5-6.
 const B32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-
-export function newRecoveryCode(): Uint8Array {
-  return randomBytes(16)
-}
 
 export function formatRecoveryCode(code: Uint8Array): string {
   let n = BigInt("0x" + toHex(code))
@@ -108,11 +82,6 @@ export function parseRecoveryCode(text: string): Uint8Array {
   return fromHex(n.toString(16).padStart(32, "0"))
 }
 
-/** The last group of a formatted code. The sign-up form asks the user to type it back. */
-export function lastRecoveryGroup(formatted: string): string {
-  return formatted.split("-").pop()!
-}
-
 // ---------- Data key ----------
 
 export interface DataKeys {
@@ -122,31 +91,29 @@ export interface DataKeys {
   fileId: CryptoKey // HMAC-SHA256 for file ids of big files
 }
 
-export function newDataKey(): Uint8Array {
-  return randomBytes(32)
-}
-
 export async function dataKeys(raw: Uint8Array): Promise<DataKeys> {
   return {
     raw,
-    enc: await aesKey(await hkdf(raw, "pappdrive encrypt")),
-    blobId: await hmacKey(await hkdf(raw, "pappdrive blob id")),
-    fileId: await hmacKey(await hkdf(raw, "pappdrive file id")),
+    enc: await subtle.importKey("raw", buf(await hkdf(raw, "pappdrive encrypt")), "AES-GCM", false, ["encrypt", "decrypt"]),
+    blobId: await subtle.importKey("raw", buf(await hkdf(raw, "pappdrive blob id")), HMAC, false, ["sign"]),
+    fileId: await subtle.importKey("raw", buf(await hkdf(raw, "pappdrive file id")), HMAC, false, ["sign"]),
   }
 }
 
 /** The data key, locked with the password key or the recovery key. Base64. */
 export async function lockDataKey(dataKey: Uint8Array, lockKey: Uint8Array): Promise<string> {
   const nonce = randomBytes(12)
-  const ct = new Uint8Array(await subtle.encrypt({ name: "AES-GCM", iv: buf(nonce) }, await aesKey(lockKey), buf(dataKey)))
+  const key = await subtle.importKey("raw", buf(lockKey), "AES-GCM", false, ["encrypt"])
+  const ct = new Uint8Array(await subtle.encrypt({ name: "AES-GCM", iv: buf(nonce) }, key, buf(dataKey)))
   return toBase64(concat(new Uint8Array([COPY_VERSION]), nonce, ct))
 }
 
 export async function unlockDataKey(copy: string, lockKey: Uint8Array): Promise<Uint8Array> {
   const bytes = fromBase64(copy)
   if (bytes[0] !== COPY_VERSION) throw new SyncError("update-needed", "The locked key has an unknown format. Update pappdrive.")
+  const key = await subtle.importKey("raw", buf(lockKey), "AES-GCM", false, ["decrypt"])
   try {
-    const pt = await subtle.decrypt({ name: "AES-GCM", iv: buf(bytes.subarray(1, 13)) }, await aesKey(lockKey), buf(bytes.subarray(13)))
+    const pt = await subtle.decrypt({ name: "AES-GCM", iv: buf(bytes.subarray(1, 13)) }, key, buf(bytes.subarray(13)))
     return new Uint8Array(pt)
   } catch {
     throw new SyncError("credentials", "The password or recovery code does not open this account's key.")

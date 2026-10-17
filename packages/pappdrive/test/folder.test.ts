@@ -1,19 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest"
-import type { DataKeys } from "../src/core/crypto.js"
 import type { Coordinator, CoordinatorMessage, Watcher } from "../src/core/types.js"
-import { device, newKeys, type Device, type DeviceOptions } from "./helpers/device.js"
+import { closeDevices, device, setup } from "./helpers/device.js"
 import { MemFs } from "./helpers/memfs.js"
-import { FakeServer } from "./helpers/server.js"
 
-const open: Device[] = []
-async function dev(server: FakeServer, keys: DataKeys, o: DeviceOptions = {}, start = true): Promise<Device> {
-  const d = await device(server, keys, o, start)
-  open.push(d)
-  return d
-}
-afterEach(async () => {
-  for (const d of open.splice(0)) await d.folder.close()
-})
+afterEach(closeDevices)
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 async function until(cond: () => boolean | Promise<boolean>, ms = 2000): Promise<void> {
@@ -42,9 +32,8 @@ class FakeWatcher implements Watcher {
 
 describe("files API", () => {
   it("write, read, list, remove, and the errors that say what to do", async () => {
-    const server = new FakeServer()
-    const keys = await newKeys()
-    const { folder, fs } = await dev(server, keys)
+    const { server, keys } = await setup(0)
+    const { folder, fs } = await device(server, keys)
     await folder.write("notes/a.md", "a")
     await folder.write("notes/deep/b.md", new TextEncoder().encode("b"))
     await folder.write("c.txt", new Blob(["c"]))
@@ -92,9 +81,8 @@ describe("files API", () => {
   })
 
   it("writing to an ignored path saves on this device only, and fires nothing", async () => {
-    const server = new FakeServer()
-    const keys = await newKeys()
-    const a = await dev(server, keys)
+    const { server, keys } = await setup(0)
+    const a = await device(server, keys)
     await a.folder.write(".pappignore", "cache/\n")
     const before = a.changes.length
     await a.folder.write("cache/thumb.png", "local")
@@ -106,9 +94,8 @@ describe("files API", () => {
   })
 
   it("status reports pending changes and syncing", async () => {
-    const server = new FakeServer()
-    const keys = await newKeys()
-    const a = await dev(server, keys)
+    const { server, keys } = await setup(0)
+    const a = await device(server, keys)
     const seen: boolean[] = []
     a.folder.onStatus((s) => seen.push(s.syncing))
     await a.folder.write("x.md", "x")
@@ -123,9 +110,8 @@ describe("files API", () => {
 
 describe("scheduling", () => {
   it("local changes sync after the debounce; a burst of saves is one commit", async () => {
-    const server = new FakeServer()
-    const keys = await newKeys()
-    const a = await dev(server, keys, { tuning: { quietMs: 30, maxWaitMs: 200 } })
+    const { server, keys } = await setup(0)
+    const a = await device(server, keys, { tuning: { quietMs: 30, maxWaitMs: 200 } })
     const commits = server.commits
     await a.folder.write("1.md", "1")
     await a.folder.write("2.md", "2")
@@ -138,10 +124,9 @@ describe("scheduling", () => {
   })
 
   it("while the debounce waits, a poll round only applies server changes", async () => {
-    const server = new FakeServer()
-    const keys = await newKeys()
-    const b = await dev(server, keys)
-    const a = await dev(server, keys, { tuning: { quietMs: 10_000, maxWaitMs: 10_000, pollMs: 20 } })
+    const { server, keys } = await setup(0)
+    const b = await device(server, keys)
+    const a = await device(server, keys, { tuning: { quietMs: 10_000, maxWaitMs: 10_000, pollMs: 20 } })
     await b.folder.write("from-b.md", "b")
     await b.folder.sync()
     await a.folder.write("from-a.md", "a")
@@ -152,11 +137,9 @@ describe("scheduling", () => {
   })
 
   it("going to the background ends the debounce and syncs", async () => {
-    const server = new FakeServer()
-    const keys = await newKeys()
+    const { server, keys } = await setup(0)
     let bg: (() => void) | null = null
     const d = await device(server, keys, { tuning: { quietMs: 60_000, maxWaitMs: 60_000 } }, false)
-    open.push(d)
     ;(d.ctx.platform as { onBackground?: (cb: () => void) => () => void }).onBackground = (cb) => {
       bg = cb
       return () => (bg = null)
@@ -172,10 +155,9 @@ describe("scheduling", () => {
 
 describe("visible folders and the watcher", () => {
   it("events are hints: after quiet, each file is looked at; a rename-save is one change", async () => {
-    const server = new FakeServer()
-    const keys = await newKeys()
+    const { server, keys } = await setup(0)
     const watcher = new FakeWatcher()
-    const a = await dev(server, keys, { kind: "visible", watcher, tuning: { watchQuietMs: 20, watchMaxMs: 200, quietMs: 20, maxWaitMs: 200 } })
+    const a = await device(server, keys, { kind: "visible", watcher, tuning: { watchQuietMs: 20, watchMaxMs: 200, quietMs: 20, maxWaitMs: 200 } })
     expect(watcher.globs).toEqual(expect.arrayContaining(["**/.git", ".pappdrive", "**/node_modules"]))
     a.fs.put("doc.md", "v1")
     watcher.onPaths!(["doc.md"])
@@ -195,10 +177,9 @@ describe("visible folders and the watcher", () => {
   })
 
   it("dropped events mean a full scan", async () => {
-    const server = new FakeServer()
-    const keys = await newKeys()
+    const { server, keys } = await setup(0)
     const watcher = new FakeWatcher()
-    const a = await dev(server, keys, { kind: "visible", watcher, tuning: { quietMs: 20, maxWaitMs: 200 } })
+    const a = await device(server, keys, { kind: "visible", watcher, tuning: { quietMs: 20, maxWaitMs: 200 } })
     a.fs.put("x/a.md", "a")
     a.fs.put("x/b.md", "b")
     watcher.onDropped!()
@@ -206,11 +187,10 @@ describe("visible folders and the watcher", () => {
   })
 
   it("a folder event scans the folder; downloads do not look like local changes", async () => {
-    const server = new FakeServer()
-    const keys = await newKeys()
+    const { server, keys } = await setup(0)
     const watcher = new FakeWatcher()
-    const other = await dev(server, keys)
-    const a = await dev(server, keys, { kind: "visible", watcher, tuning: { watchQuietMs: 10, quietMs: 10, maxWaitMs: 100 } })
+    const other = await device(server, keys)
+    const a = await device(server, keys, { kind: "visible", watcher, tuning: { watchQuietMs: 10, quietMs: 10, maxWaitMs: 100 } })
     a.fs.put("dir/one.md", "1")
     a.fs.put("dir/two.md", "2")
     watcher.onPaths!(["dir"])
@@ -226,9 +206,8 @@ describe("visible folders and the watcher", () => {
   })
 
   it("without a watcher, a visible folder is scanned each round", async () => {
-    const server = new FakeServer()
-    const keys = await newKeys()
-    const a = await dev(server, keys, { kind: "visible" })
+    const { server, keys } = await setup(0)
+    const a = await device(server, keys, { kind: "visible" })
     a.fs.put("x.md", "x")
     await a.folder.sync()
     expect(Object.keys(await server.body(keys))).toEqual(["x.md"])
@@ -236,11 +215,10 @@ describe("visible folders and the watcher", () => {
   })
 
   it("rescans only files whose size or mtime changed", async () => {
-    const server = new FakeServer()
-    const keys = await newKeys()
+    const { server, keys } = await setup(0)
     const fs = new MemFs({ kind: "visible" })
     for (let i = 0; i < 5; i++) fs.put(`f${i}.md`, `file ${i}`)
-    const a = await dev(server, keys, { fs })
+    const a = await device(server, keys, { fs })
     await a.folder.close()
     let reads = 0
     const read = fs.read.bind(fs)
@@ -249,7 +227,7 @@ describe("visible folders and the watcher", () => {
       return read(p, o, l)
     }
     fs.put("f0.md", "changed")
-    await dev(server, keys, { fs })
+    await device(server, keys, { fs })
     expect(reads).toBe(1 + 1) // hashing f0, and reading it to upload
   })
 })
@@ -302,17 +280,16 @@ describe("browser tabs", () => {
   }
 
   it("only the leader syncs; a follower's writes reach it, and the follower hears the leader", async () => {
-    const server = new FakeServer()
-    const keys = await newKeys()
+    const { server, keys } = await setup(0)
     const coordinator = bus()
     const shared = new MemFs() // tabs share the origin's private storage
-    const lead = await dev(server, keys, { fs: shared, coordinator, tuning: { quietMs: 10, maxWaitMs: 100 } })
-    const follow = await dev(server, keys, { fs: shared, coordinator })
+    const lead = await device(server, keys, { fs: shared, coordinator, tuning: { quietMs: 10, maxWaitMs: 100 } })
+    const follow = await device(server, keys, { fs: shared, coordinator })
     await follow.folder.write("from-follower.md", "f")
     expect(follow.changes).toContainEqual({ path: "from-follower.md", origin: "local" })
     await until(async () => Object.keys(await server.body(keys)).includes("from-follower.md"))
     expect(follow.folder.status.lastSync).not.toBeNull()
-    const other = await dev(server, keys)
+    const other = await device(server, keys)
     await other.folder.write("remote.md", "r")
     await other.folder.sync()
     await follow.folder.sync()

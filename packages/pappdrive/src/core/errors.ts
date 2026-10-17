@@ -1,3 +1,5 @@
+import type { GoneReason } from "@pappdrive/protocol"
+
 // Every error the library throws. The app checks `code`, not the message.
 // Messages say what to do next: they are often read by a coding agent.
 
@@ -23,9 +25,9 @@ export type SyncErrorCode =
 export class SyncError extends Error {
   readonly code: SyncErrorCode
   retryAfter?: number
-  reason?: "app" | "account"
+  reason?: GoneReason
 
-  constructor(code: SyncErrorCode, message: string, extra?: { retryAfter?: number; reason?: "app" | "account" }) {
+  constructor(code: SyncErrorCode, message: string, extra?: { retryAfter?: number; reason?: GoneReason }) {
     super(`${code}: ${message}`)
     this.name = "SyncError"
     this.code = code
@@ -39,10 +41,10 @@ export class ApiError extends Error {
   readonly status: number
   readonly error: string // ErrorWord, or "network" when no answer came
   readonly missing?: string[]
-  readonly reason?: "app" | "account"
+  readonly reason?: GoneReason
   readonly retryAfter?: number
 
-  constructor(status: number, error: string, extra: { missing?: string[]; reason?: "app" | "account"; retryAfter?: number } = {}) {
+  constructor(status: number, error: string, extra: { missing?: string[]; reason?: GoneReason; retryAfter?: number } = {}) {
     super(`server answered ${status} ${error}`)
     this.name = "ApiError"
     this.status = status

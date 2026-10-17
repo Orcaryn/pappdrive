@@ -4,7 +4,6 @@
 import * as readline from "node:readline"
 import { Writable } from "node:stream"
 import { MIN_PASSWORD_LENGTH } from "@pappdrive/protocol"
-import { lastRecoveryGroup } from "../core/crypto.js"
 import { SyncError } from "../core/errors.js"
 import type { Papp } from "../core/types.js"
 
@@ -55,11 +54,9 @@ export function createPrompter(
   })
   const finish = (e: Error) => {
     ended ??= e
-    if (waiting) {
-      const w = waiting
-      waiting = null
-      w.reject(ended)
-    }
+    const w = waiting
+    waiting = null
+    w?.reject(ended)
   }
   rl.on("close", () => finish(new PromptCancelled("No more input: the questions could not be answered.")))
   rl.on("SIGINT", () => {
@@ -111,7 +108,7 @@ export function createPrompter(
 
 /** The plain-words message for an error from sign-up, sign-in or recovery. */
 export function explainAuthError(e: unknown, during: "sign-in" | "sign-up" | "recovery" = "sign-in"): string {
-  if (!(e instanceof SyncError)) return (e as Error)?.message ?? String(e)
+  if (!(e instanceof SyncError)) return (e as Error).message
   const detail = e.message.replace(/^[a-z-]+: /, "")
   switch (e.code) {
     case "credentials":
@@ -146,7 +143,7 @@ function foldCode(s: string): string {
 
 /** Shows the recovery code once, and does not return until its last group is typed back. */
 export async function confirmRecoveryCode(p: Prompter, recoveryCode: string): Promise<void> {
-  const last = lastRecoveryGroup(recoveryCode)
+  const last = recoveryCode.split("-").pop()!
   p.say("")
   p.say("Your recovery code:")
   p.say("")
@@ -201,9 +198,13 @@ export async function signInPrompt(papp: Papp, prompter?: Prompter): Promise<voi
       p.say("  2. Create an account")
       p.say("  3. Forgot the password: use the recovery code")
       const choice = await p.ask("Choose 1, 2 or 3 [1]: ", "1")
-      const during = choice === "2" ? "sign-up" : choice === "3" ? "recovery" : "sign-in"
+      const during = ({ "1": "sign-in", "2": "sign-up", "3": "recovery" } as const)[choice]
+      if (!during) {
+        p.say(`"${choice}" is not one of the choices. Type 1, 2 or 3.`)
+        continue
+      }
       try {
-        if (choice === "1") {
+        if (during === "sign-in") {
           const email = await askEmail(p)
           const password = await p.askHidden("Password: ")
           p.say("Signing in...")
@@ -211,7 +212,7 @@ export async function signInPrompt(papp: Papp, prompter?: Prompter): Promise<voi
           p.say("Signed in.")
           return
         }
-        if (choice === "2") {
+        if (during === "sign-up") {
           const email = await askEmail(p)
           const password = await askNewPassword(p)
           p.say("Creating the account...")
@@ -220,16 +221,13 @@ export async function signInPrompt(papp: Papp, prompter?: Prompter): Promise<voi
           p.say("Account created. Signed in.")
           return
         }
-        if (choice === "3") {
-          const email = await askEmail(p)
-          const code = await p.ask("Recovery code: ")
-          const password = await askNewPassword(p, "New password")
-          p.say("Checking the recovery code...")
-          await papp.recover(email, code, password)
-          p.say("Password changed. Signed in.")
-          return
-        }
-        p.say(`"${choice}" is not one of the choices. Type 1, 2 or 3.`)
+        const email = await askEmail(p)
+        const code = await p.ask("Recovery code: ")
+        const password = await askNewPassword(p, "New password")
+        p.say("Checking the recovery code...")
+        await papp.recover(email, code, password)
+        p.say("Password changed. Signed in.")
+        return
       } catch (e) {
         if (e instanceof PromptCancelled) throw e
         p.say(explainAuthError(e, during))

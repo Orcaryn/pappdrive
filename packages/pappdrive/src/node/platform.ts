@@ -16,22 +16,13 @@ import { nodeWatcher } from "./watcher.js"
  * macOS ~/Library/Application Support/pappdrive, Linux $XDG_DATA_HOME/pappdrive or ~/.local/share/pappdrive,
  * Windows %LOCALAPPDATA%\pappdrive.
  */
-export function dataDir(): string {
+function dataDir(): string {
   const env = process.env
   if (env.PAPPDRIVE_DATA_DIR) return resolve(env.PAPPDRIVE_DATA_DIR)
   if (process.platform === "darwin") return join(homedir(), "Library", "Application Support", "pappdrive")
   if (process.platform === "win32") return join(env.LOCALAPPDATA || join(homedir(), "AppData", "Local"), "pappdrive")
   const xdg = env.XDG_DATA_HOME
   return join(xdg && isAbsolute(xdg) ? xdg : join(homedir(), ".local", "share"), "pappdrive")
-}
-
-const SAFE_SEGMENT = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}$/
-
-function checkSegment(what: string, value: string): string {
-  if (!SAFE_SEGMENT.test(value)) {
-    throw new SyncError("bad-path", `The ${what} "${value}" cannot be used as a folder name. This is a bug in pappdrive; please report it.`)
-  }
-  return value
 }
 
 /**
@@ -41,9 +32,12 @@ function checkSegment(what: string, value: string): string {
  * is next to the own store but never inside its synced files.
  */
 export function privateStorePath(userId: string, app: string, readFor?: string): string {
-  const base = join(dataDir(), checkSegment("user id", userId))
-  const own = checkSegment("app name", app)
-  return readFor === undefined ? join(base, own) : join(base, `${own}.read`, checkSegment("app name", readFor))
+  // App names are checked on createPapp. The user id comes from the server's token and becomes a folder name.
+  if (!/^[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}$/.test(userId)) {
+    throw new SyncError("bad-path", `The user id "${userId}" cannot be used as a folder name. This is a bug in pappdrive; please report it.`)
+  }
+  const base = join(dataDir(), userId)
+  return readFor === undefined ? join(base, app) : join(base, `${app}.read`, readFor)
 }
 
 /** Expands a leading "~" to the home folder and makes the path absolute. */
@@ -51,22 +45,6 @@ export function expandHome(path: string): string {
   if (path === "~") return homedir()
   if (path.startsWith("~/") || path.startsWith("~\\")) return join(homedir(), path.slice(2))
   return resolve(path)
-}
-
-async function isDir(p: string): Promise<boolean> {
-  try {
-    return (await fsp.stat(p)).isDirectory()
-  } catch {
-    return false
-  }
-}
-
-/** The nearest folder above `abs` that holds a hidden folder, or null. */
-export async function folderAbove(abs: string): Promise<string | null> {
-  for (let d = dirname(abs); ; d = dirname(d)) {
-    if (await isDir(join(d, HIDDEN_DIR))) return d
-    if (dirname(d) === d) return null
-  }
 }
 
 export async function openVisibleFolder(path: string): Promise<FsAdapter> {
@@ -83,31 +61,34 @@ export async function openVisibleFolder(path: string): Promise<FsAdapter> {
   try {
     await fsp.mkdir(abs, { recursive: true })
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "EEXIST" || (e as NodeJS.ErrnoException).code === "ENOTDIR") {
+    const code = (e as NodeJS.ErrnoException).code
+    if (code === "EEXIST" || code === "ENOTDIR") {
       throw new SyncError("bad-path", `"${abs}" is a file, not a folder. Give open() a folder path.`)
     }
     throw e
   }
-  if (!(await isDir(abs))) throw new SyncError("bad-path", `"${abs}" is a file, not a folder. Give open() a folder path.`)
   return openNodeFs(abs, "visible")
+}
+
+/** The nearest folder above `abs` that holds a hidden folder, or null. */
+async function folderAbove(abs: string): Promise<string | null> {
+  for (let d = dirname(abs); ; d = dirname(d)) {
+    const hidden = await fsp.stat(join(d, HIDDEN_DIR)).catch(() => null)
+    if (hidden?.isDirectory()) return d
+    if (dirname(d) === d) return null
+  }
 }
 
 // ---------- Background and exit ----------
 
 /** How long exit waits for the callbacks (and any promise they return) before going ahead. */
-export const EXIT_WAIT_MS = 10_000
+const EXIT_WAIT_MS = 10_000
 const callbacks = new Set<() => void>()
 let exiting = false
 let ranBeforeExit = false
 
 function runAll(): Promise<unknown> {
-  const results = [...callbacks].map((cb) => {
-    try {
-      return Promise.resolve((cb as () => unknown)())
-    } catch (e) {
-      return Promise.reject(e)
-    }
-  })
+  const results = [...callbacks].map(async (cb) => cb())
   const timeout = new Promise((r) => setTimeout(r, EXIT_WAIT_MS).unref())
   return Promise.race([Promise.allSettled(results), timeout])
 }
@@ -138,7 +119,7 @@ const SIGNALS: NodeJS.Signals[] = ["SIGINT", "SIGTERM"]
  * Calls cb when the process is about to end: the event loop ran dry, or SIGINT / SIGTERM.
  * If cb returns a promise, exit waits for it, up to EXIT_WAIT_MS. A second Ctrl-C exits at once.
  */
-export function onProcessEnd(cb: () => void): () => void {
+function onProcessEnd(cb: () => void): () => void {
   if (callbacks.size === 0) {
     process.on("beforeExit", onBeforeExit)
     for (const s of SIGNALS) process.on(s, onSignal)
@@ -156,7 +137,7 @@ export function onProcessEnd(cb: () => void): () => void {
 export const nodePlatform: Platform = {
   name: "node",
   defaultKeyStore: () => nodeKeyStore(),
-  openPrivate: async (userId, app, readFor) => openNodeFs(privateStorePath(userId, app, readFor), "private"),
+  openPrivate: (userId, app, readFor) => openNodeFs(privateStorePath(userId, app, readFor), "private"),
   openVisible: openVisibleFolder,
   watcher: nodeWatcher,
   onBackground: onProcessEnd,

@@ -8,10 +8,11 @@
 //   import { signInForm } from "pappdrive/ui"
 //   await signInForm(document.querySelector("#sign-in"), papp)            // resolves once signed in
 //   await signInForm(el, { signUp, signIn, recover })                     // Electron: functions over IPC
+import { MIN_PASSWORD_LENGTH } from "@pappdrive/protocol"
+import type { SyncError } from "../core/errors.js"
 import type { Papp } from "../core/types.js"
-import { errorText, matchesGroup, MIN_PASSWORD, type Mode, passwordTooShort } from "./messages.js"
 
-export { errorText, matchesGroup, type Mode } from "./messages.js"
+export type Mode = "sign-in" | "sign-up" | "recover"
 
 /** The three calls the form needs. A Papp has them; in Electron, pass functions that call the main process. */
 export interface AccountFunctions {
@@ -23,8 +24,6 @@ export interface AccountFunctions {
 export interface SignInFormOptions {
   /** The first view. Default "sign-in". */
   mode?: Mode
-  /** The app name, for the "app not created yet" message. Taken from the error when it names it. */
-  app?: string
   /** A name shown in the heading, e.g. "My Notes". */
   appTitle?: string
 }
@@ -117,18 +116,15 @@ function el<K extends keyof HTMLElementTagNameMap>(doc: Document, tag: K, attrs:
   return node
 }
 
-function lastGroup(code: string): string {
-  return code.split("-").pop() ?? code
-}
-
 /**
  * Shows the form in `element` and resolves once the user is signed in (after a sign-up: once the
  * recovery code is confirmed). `account` is a Papp, or `{ signUp, signIn, recover }`.
  */
 export async function signInForm(element: HTMLElement, account: Papp | AccountFunctions, options: SignInFormOptions = {}): Promise<void> {
-  const papp = account as Partial<Papp>
-  if (papp.ready) await papp.ready
-  if (papp.signedIn === true) return
+  if ("ready" in account) {
+    await account.ready
+    if (account.signedIn) return
+  }
 
   const doc = element.ownerDocument
   injectStyle(doc)
@@ -209,7 +205,7 @@ export async function signInForm(element: HTMLElement, account: Papp | AccountFu
       const pw =
         mode === "sign-in"
           ? field("password", "Password", { type: "password", autocomplete: "current-password", required: true })
-          : field("password", mode === "recover" ? "New password" : "Password", { type: "password", autocomplete: "new-password", required: true, minlength: String(MIN_PASSWORD) }, `At least ${MIN_PASSWORD} characters. A few random words work well.`)
+          : field("password", mode === "recover" ? "New password" : "Password", { type: "password", autocomplete: "new-password", required: true, minlength: String(MIN_PASSWORD_LENGTH) }, `At least ${MIN_PASSWORD_LENGTH} characters. A few random words work well.`)
       inputs.push(pw.input)
       kids.push(pw.wrap)
       const err = errorBox()
@@ -231,12 +227,9 @@ export async function signInForm(element: HTMLElement, account: Papp | AccountFu
         const emailValue = email.input.value.trim()
         lastEmail = emailValue
         const password = pw.input.value
-        if (!emailValue || !emailValue.includes("@")) return showError(err, "Enter your email address.", undefined, email.input, inputs)
+        if (!emailValue.includes("@")) return showError(err, "Enter your email address.", undefined, email.input, inputs)
         if (code && !code.value.trim()) return showError(err, "Enter your recovery code.", undefined, code, inputs)
         if (!password) return showError(err, mode === "recover" ? "Choose a new password." : "Enter your password.", undefined, pw.input, inputs)
-        if (mode !== "sign-in" && passwordTooShort(password)) {
-          return showError(err, `The password is too short. Use at least ${MIN_PASSWORD} characters. A few random words work well.`, undefined, pw.input, inputs)
-        }
         showError(err, "", undefined, null, inputs)
         busy = true
         submit.disabled = true
@@ -255,17 +248,14 @@ export async function signInForm(element: HTMLElement, account: Papp | AccountFu
             showRecovery(recoveryCode, emailValue)
           }
         } catch (e) {
-          const online = typeof navigator === "undefined" ? undefined : navigator.onLine
-          const { text, field: bad, command } = errorText(e, mode, { app: options.app, online })
-          const target = bad === "email" ? email.input : bad === "password" ? pw.input : bad === "code" ? code : null
-          status.textContent = ""
-          showError(err, text, command, target, inputs)
-        } finally {
           busy = false
           submit.disabled = false
           form.removeAttribute("aria-busy")
           submit.textContent = submitText
-          if (status.textContent?.startsWith("This takes")) status.textContent = ""
+          status.textContent = ""
+          const { text, field: bad, command } = errorText(e, mode)
+          const target = bad === "email" ? email.input : bad === "password" ? pw.input : bad === "code" ? code : null
+          showError(err, text, command, target, inputs)
         }
       }
       email.input.value ? pw.input.focus() : email.input.focus()
@@ -274,7 +264,7 @@ export async function signInForm(element: HTMLElement, account: Papp | AccountFu
     // ---------- the recovery code, after sign-up ----------
 
     const showRecovery = (recoveryCode: string, email: string) => {
-      const group = lastGroup(recoveryCode)
+      const group = recoveryCode.split("-").at(-1)!
       const codeBox = el(doc, "output", { class: "pappdrive-code", "aria-label": "Your recovery code" }, recoveryCode)
       const status = el(doc, "p", { class: "pappdrive-status", "aria-live": "polite" })
       const copy = el(doc, "button", { type: "button" }, "Copy")
@@ -347,4 +337,56 @@ export async function signInForm(element: HTMLElement, account: Papp | AccountFu
 
     render()
   })
+}
+
+// ---------- texts ----------
+
+/**
+ * What the user reads for a failed call, and which input to mark as wrong. Errors are matched by
+ * `code`; in Electron the window throws them again with the same code (examples/journal-electron).
+ */
+export function errorText(err: unknown, mode: Mode): { text: string; field?: "email" | "password" | "code"; command?: string } {
+  const { code, message, retryAfter = 60 } = err as Partial<SyncError>
+  switch (code) {
+    case "credentials":
+      return mode === "recover"
+        ? { text: "The email or the recovery code is wrong. Check both against your saved copy of the code.", field: "code" }
+        : { text: "Wrong email or password. Try again, or use your recovery code if you forgot the password.", field: "password" }
+    case "exists":
+      return { text: "An account with this email already exists. Sign in instead.", field: "email" }
+    case "weak-password":
+      return { text: `The password is too short. Use at least ${MIN_PASSWORD_LENGTH} characters. A few random words work well.`, field: "password" }
+    case "rate-limited": {
+      const minutes = Math.ceil(retryAfter / 60)
+      const wait = retryAfter < 60 ? `${retryAfter} second${retryAfter === 1 ? "" : "s"}` : `${minutes} minute${minutes === 1 ? "" : "s"}`
+      return { text: `Too many tries. Wait ${wait}, then try again.` }
+    }
+    case "no-app": {
+      // The library's message names the command that creates the app.
+      const command = /npx pappdrive-cli apps create ([a-z0-9-]+)/.exec(message!)
+      if (!command) break
+      return { text: `The app "${command[1]}" is not created yet. Create it in a terminal with this command, then try again:`, command: command[0] }
+    }
+    case "network":
+      return { text: "You seem to be offline, or the sync server cannot be reached. Check the connection and try again." }
+    case "gone":
+      return { text: "This account or app folder was deleted. Sign up again to start a new, empty folder." }
+    case "update-needed":
+      return { text: "This app needs an update to sync. Update it, then try again." }
+    case "server":
+      return { text: "The sync server had a problem. Try again in a minute." }
+  }
+  return { text: `Something went wrong: ${message ?? String(err)}` }
+}
+
+/** Did the user type back the last group of the code? Crockford base32: case and dashes ignored, I and L read as 1, O as 0. */
+export function matchesGroup(typed: string, lastGroup: string): boolean {
+  const normalize = (s: string) =>
+    s
+      .toUpperCase()
+      .replace(/[^0-9A-Z]/g, "")
+      .replace(/[IL]/g, "1")
+      .replace(/O/g, "0")
+  const t = normalize(typed)
+  return t.length > 0 && t === normalize(lastGroup)
 }

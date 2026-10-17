@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { DEFAULT_ARGON2, type Argon2Params, type GoneReason } from "@pappdrive/protocol"
+import { SyncError } from "../src/core/errors.js"
+import { createPappCore } from "../src/core/papp.js"
 import type { Folder, FolderContext, KeyStore, Platform, Status } from "../src/core/types.js"
 
 // ---------- Mock sync engine ----------
@@ -12,6 +14,7 @@ vi.mock("../src/core/folder.js", () => ({
       readOnly: ctx.readOnly,
       status,
       start: vi.fn(async () => {}),
+      sync: vi.fn(async () => {}),
       close: vi.fn(async () => {}),
       markDeleted: vi.fn(async (reason: GoneReason) => {
         status.deleted = reason
@@ -21,8 +24,6 @@ vi.mock("../src/core/folder.js", () => ({
     return folder
   },
 }))
-
-const { createPappCore, SyncError } = await import("../src/core/index.js")
 
 // ---------- Fake server ----------
 
@@ -205,17 +206,16 @@ function device(opts: { app?: string; read?: string[]; store?: KeyStore } = {}) 
   return { papp, store: store as ReturnType<typeof memoryStore>, platform: p }
 }
 
-async function storedKey(store: ReturnType<typeof memoryStore>): Promise<string> {
-  const v = [...store.data.values()][0]
-  return JSON.parse(v!).dataKey
+function storedKey(store: ReturnType<typeof memoryStore>): string {
+  return JSON.parse([...store.data.values()][0]!).dataKey
 }
 
-async function errorOf(p: Promise<unknown>): Promise<InstanceType<typeof SyncError>> {
+async function errorOf(p: Promise<unknown>): Promise<SyncError> {
   try {
     await p
   } catch (e) {
     expect(e).toBeInstanceOf(SyncError)
-    return e as InstanceType<typeof SyncError>
+    return e as SyncError
   }
   throw new Error("expected a SyncError")
 }
@@ -236,7 +236,7 @@ describe("account layer", () => {
     const b = device()
     await b.papp.ready
     await b.papp.signIn("sagi@example.com", PW)
-    expect(await storedKey(b.store)).toBe(await storedKey(a.store))
+    expect(storedKey(b.store)).toBe(storedKey(a.store))
     expect(await errorOf(device().papp.signIn(EMAIL, "wrong password!!"))).toMatchObject({ code: "credentials" })
   })
 
@@ -254,14 +254,14 @@ describe("account layer", () => {
   it("recovers with the code and sets a new password; the old one then fails", async () => {
     const { papp, store } = device()
     const { recoveryCode } = await papp.signUp(EMAIL, PW)
-    const key = await storedKey(store)
+    const key = storedKey(store)
     const other = device()
     await other.papp.recover(EMAIL, recoveryCode.toLowerCase(), "a brand new password")
-    expect(await storedKey(other.store)).toBe(key)
+    expect(storedKey(other.store)).toBe(key)
     expect(await errorOf(device().papp.signIn(EMAIL, PW))).toMatchObject({ code: "credentials" })
     const third = device()
     await third.papp.signIn(EMAIL, "a brand new password")
-    expect(await storedKey(third.store)).toBe(key)
+    expect(storedKey(third.store)).toBe(key)
     expect(await errorOf(device().papp.recover(EMAIL, "00000-00000-00000-00000-000000", "a brand new password"))).toMatchObject({
       code: "credentials",
     })
@@ -380,6 +380,19 @@ describe("account layer", () => {
     expect(server.calls.slice(-2)).toEqual(["GET /index/link?app=notes", "POST /blobs/download?app=notes"])
     expect(await errorOf(ctx.api.commit({ v: 1, blobs: {}, body: "" }, null))).toMatchObject({ code: "read-only" })
     expect(await errorOf(ctx.api.uploadLinks([]))).toMatchObject({ code: "read-only" })
+  })
+
+  it("open twice at once starts one folder; close syncs and stops it but stays signed in", async () => {
+    const { papp } = device()
+    await papp.signUp(EMAIL, PW)
+    const [a, b] = await Promise.all([papp.open({ mode: "private" }), papp.open({ mode: "private" })])
+    expect(a).toBe(b)
+    expect(opened).toHaveLength(1)
+    await papp.close()
+    expect(opened[0]!.folder.sync).toHaveBeenCalled()
+    expect(opened[0]!.folder.close).toHaveBeenCalled()
+    expect(papp.signedIn).toBe(true)
+    expect(await papp.open({ mode: "private" })).not.toBe(a)
   })
 
   it("signOut logs out, closes folders and deletes the key store entry", async () => {
