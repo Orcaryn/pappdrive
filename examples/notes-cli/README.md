@@ -29,7 +29,7 @@ The first command asks for your email and password in the terminal (`papp.signIn
 ## Points to copy
 
 - `if (!papp.signedIn) await papp.signInPrompt()` before `open`.
-- A command-line tool is short-lived, so it calls `await files.sync()` itself: before reading (to get other devices' notes) and after writing (to send its own). It then calls `process.exit`, because an open folder keeps polling.
+- A command-line tool is short-lived, so it calls `await files.sync()` itself: before reading (to get other devices' notes) and after writing (to send its own). It ends with `await papp.close()`, which syncs what is pending and stops polling.
 - Offline is not an error: `network` and `server` codes are reported and the note stays on this computer until the next run.
 - `no-app` gets the command that fixes it.
 - Conflict copies (`... (conflict 2026-10-17 09-15-30).md`) are listed and shown like any note.

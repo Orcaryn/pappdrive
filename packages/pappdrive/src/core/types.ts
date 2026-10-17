@@ -28,6 +28,8 @@ export interface Papp {
   deleteApp(password: string): Promise<void>
   deleteAccount(password: string): Promise<void>
   signInPrompt(): Promise<void> // terminal only; throws in a browser
+  /** Syncs pending changes and stops all folders, so a command-line tool can exit. The sign-in stays saved. */
+  close(): Promise<void>
 }
 
 export interface FileInfo {

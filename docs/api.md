@@ -234,6 +234,7 @@ await papp.signIn(email, password)
 await papp.recover(email, recoveryCode, newPassword)        // forgot the password, has the code
 await papp.setPassword(newPassword)                         // signed-in device: change or forgot
 await papp.signOut()                                        // removes the data key from this device
+await papp.close()                                          // syncs pending changes, stops all folders; stays signed in
 papp.signedIn                                               // true or false
 await papp.deleteApp(password)                              // this app's folder, on every device. Final
 await papp.deleteAccount(password)                          // every app, on every device. Final

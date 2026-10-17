@@ -5,26 +5,43 @@
   "type": "module",
   "exports": {
     ".": {
-      "browser": "./src/browser/index.ts",
-      "node": "./src/node/index.ts",
-      "types": "./src/node/index.ts",
-      "default": "./src/browser/index.ts"
+      "types": "./dist/node.d.ts",
+      "browser": "./dist/browser.js",
+      "node": "./dist/node.js",
+      "default": "./dist/browser.js"
     },
-    "./ui": "./src/ui/index.ts",
-    "./node": "./src/node/index.ts",
-    "./browser": "./src/browser/index.ts"
+    "./ui": {
+      "types": "./dist/ui.d.ts",
+      "default": "./dist/ui.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "default": "./dist/node.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "default": "./dist/browser.js"
+    }
   },
   "scripts": {
     "typecheck": "tsc -p .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build": "tsup && mkdir -p docs && cp ../../docs/api.md ../../docs/llms.txt docs/"
   },
   "dependencies": {
-    "@pappdrive/protocol": "workspace:*",
     "hash-wasm": "^4.12.0",
     "ignore": "^7.0.5"
   },
   "optionalDependencies": {
     "@parcel/watcher": "^2.5.0",
     "@napi-rs/keyring": "^1.1.0"
+  },
+  "files": [
+    "dist",
+    "docs"
+  ],
+  "sideEffects": false,
+  "devDependencies": {
+    "@pappdrive/protocol": "workspace:*"
   }
 }

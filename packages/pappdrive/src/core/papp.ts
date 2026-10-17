@@ -354,6 +354,17 @@ class PappCore implements Papp {
     await this.clearSession()
   }
 
+  /** Syncs what is pending, then stops every open folder. The sign-in stays saved. */
+  async close(): Promise<void> {
+    const folders = this.openFolders()
+    await Promise.allSettled(folders.map((f) => f.sync()))
+    this.own = null
+    this.ownOpening = null
+    this.readers.clear()
+    this.readerFolders.clear()
+    await Promise.allSettled(folders.map((f) => f.close()))
+  }
+
   async deleteApp(password: string): Promise<void> {
     await this.deleteWith(password, "app")
   }
