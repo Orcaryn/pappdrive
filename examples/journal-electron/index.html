@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+    <title>Journal</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <section id="sign-in-screen" hidden>
+      <h1>Journal</h1>
+      <p>Sign in to sync your journal between your computers.</p>
+      <p class="small">We cannot recover your password. Your other devices or your recovery code can.</p>
+      <div id="sign-in"></div>
+    </section>
+
+    <section id="journal-screen" hidden>
+      <aside>
+        <button id="today">Today</button>
+        <ul id="entries"></ul>
+        <footer>
+          <span id="status"></span>
+          <button id="sync" title="Sync now">Sync</button>
+          <button id="signout">Sign out</button>
+        </footer>
+      </aside>
+      <main>
+        <header>
+          <h2 id="title"></h2>
+          <button id="delete">Delete</button>
+        </header>
+        <div id="notice" hidden>
+          <span id="notice-text"></span>
+          <button id="notice-action" hidden></button>
+          <button id="notice-close">×</button>
+        </div>
+        <textarea id="editor" placeholder="Write about your day. It saves by itself."></textarea>
+      </main>
+    </section>
+
+    <script type="module" src="dist/renderer.js"></script>
+  </body>
+</html>

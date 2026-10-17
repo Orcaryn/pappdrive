@@ -1,0 +1,390 @@
+# Pappdrive: the whole API, and every rule an app must follow
+
+Pappdrive gives a personal app one folder that stays the same on every device of its user. The app reads and writes plain files. The library syncs them in the background, works offline, and encrypts everything on the device. The server and storage see only encrypted bytes.
+
+Read this page once, top to bottom. It is complete.
+
+## Contents
+
+1. [Install](#1-install)
+2. [Create the app first](#2-create-the-app-first)
+3. [Set up: createPapp and ready](#3-set-up-createpapp-and-ready)
+4. [Sign in: the ready-made form](#4-sign-in-the-ready-made-form)
+5. [Open the folder: visible or private](#5-open-the-folder-visible-or-private)
+6. [Files](#6-files)
+7. [Watch](#7-watch)
+8. [Status](#8-status)
+9. [Reading another app's folder](#9-reading-another-apps-folder)
+10. [Account functions](#10-account-functions)
+11. [Errors](#11-errors)
+12. [Path rules](#12-path-rules)
+13. [.pappignore](#13-pappignore)
+14. [Conflicts](#14-conflicts)
+15. [Rules for app design](#15-rules-for-app-design)
+16. [Platforms](#16-platforms)
+17. [Limits](#17-limits)
+18. [Passwords, export and deletion](#18-passwords-export-and-deletion)
+19. [Checklist](#19-checklist)
+
+## 1. Install
+
+```sh
+npm install pappdrive
+```
+
+- One package. Entry points: `"pappdrive"` (the library) and `"pappdrive/ui"` (the sign-in form).
+- The right adapter is picked by the package's `exports` conditions. Node, command-line tools and Electron's main process get the node adapter. Browsers, Capacitor apps and Electron windows get the browser adapter. Use a bundler (Vite, esbuild) for browser code.
+- The app needs the server URL of the operator, for example `https://sync.example.com` (no `/v1`). If you do not know it, ask the user. Do not invent one. A good place for it is an environment variable: `PAPPDRIVE_SERVER`, or `VITE_PAPPDRIVE_SERVER` in a Vite app.
+
+## 2. Create the app first
+
+An app must exist on the server before it can sign in. Its name is unique per user and names one folder.
+
+```sh
+npm install -g pappdrive-cli          # binary: pappdrive. Or run each command with: npx pappdrive-cli ...
+export PAPPDRIVE_SERVER=https://sync.example.com   # or pass --server <url> to each command
+
+pappdrive signup                       # new user: makes the account, shows the recovery code
+pappdrive login                        # existing user
+pappdrive apps create journal          # create the app
+pappdrive apps list                    # check
+```
+
+- App names: lowercase letters, digits and `-`, 1 to 64 characters. Example: `journal`, `my-notes`.
+- The commands ask for a password in the terminal. A coding agent cannot type it. Ask the user to run them, or to run them with you watching.
+- Sign-up inside the app's own form also creates the app it names. So a brand new user can skip the CLI. An existing user who adds a new app must run `pappdrive apps create <name>` first. Otherwise sign-in fails with `no-app`.
+- Every installed copy of the same app name shares the same folder. That is how the app syncs. Two different apps (for example a desktop journal and a web journal) share data only if they use the same app name.
+
+All CLI commands:
+
+| Command | Does |
+|---|---|
+| `pappdrive signup` | Makes an account. Shows the recovery code once |
+| `pappdrive login` / `logout` | Signs the CLI in or out |
+| `pappdrive apps list` | Lists the user's apps |
+| `pappdrive apps create <name>` | Creates an app |
+| `pappdrive export <app> <dir>` | Downloads and decrypts the whole folder of an app into `<dir>` |
+| `pappdrive delete-app <name>` | Deletes one app's folder on every device. Final |
+| `pappdrive delete-account` | Deletes everything on every device. Final |
+
+## 3. Set up: createPapp and ready
+
+```ts
+import { createPapp } from "pappdrive"
+
+const papp = createPapp({
+  server: "https://sync.example.com", // the operator's server, without /v1
+  app: "journal",                     // the app name from step 2
+  read: ["my-notes"],                 // optional: other apps' folders this app may read
+  // keyStore: { get, set, delete },  // optional: replace where the data key is kept
+})
+await papp.ready  // restores a saved sign-in, if there is one
+
+if (!papp.signedIn) {
+  // show the sign-in form (section 4)
+}
+const files = await papp.open({ mode: "private" }) // section 5
+```
+
+- Call `createPapp` once, when the app starts. Everything else hangs off `papp`.
+- `papp.signedIn` is only correct after `await papp.ready`.
+- The password is asked once per device. After that the device keeps the data key: in the system keychain (Mac, Windows, Linux with a keychain), a file only the user can read (Linux without one: `~/.config/pappdrive/<user id>.key`), or IndexedDB (browser). Never inside the app folder.
+- `keyStore` replaces that storage. Interface: `get(name): Promise<string | null>`, `set(name, value): Promise<void>`, `delete(name): Promise<void>`. Values are strings. Store them encrypted. Electron apps can build one on `safeStorage`, see [examples/journal-electron](../examples/journal-electron/keystore.js).
+
+## 4. Sign in: the ready-made form
+
+Use the library's form. Do not build your own unless the user asks for it.
+
+```ts
+import { signInForm } from "pappdrive/ui"
+
+await signInForm(document.querySelector("#sign-in")!, papp) // resolves once signed in
+```
+
+- One form for sign-up, sign-in and recovery with the recovery code.
+- Sign-up shows the recovery code with copy and download buttons. To go on, the user must type back the last group of the code. It cannot be skipped. Do not try to skip it.
+- It shows every error in plain words: wrong password, email taken, password too short, too many tries and how long to wait.
+- Plain HTML, no framework. Change its look with CSS variables.
+- It ships inside the package. The password is hashed by library code on the device before anything is sent.
+- Passwords shorter than 12 characters are refused at sign-up.
+
+Electron: `papp` runs in the main process, the form in the window. Pass the three functions through IPC:
+
+```ts
+await signInForm(element, { signUp, signIn, recover }) // each calls the main process over IPC
+```
+
+See [examples/journal-electron](../examples/journal-electron/). Errors must cross IPC with their `code` (and `retryAfter`) intact, so the form can show the right message.
+
+Command-line tools: the same flow in the terminal. It hides the password.
+
+```ts
+if (!papp.signedIn) await papp.signInPrompt() // throws in a browser
+```
+
+## 5. Open the folder: visible or private
+
+```ts
+const files = await papp.open({ mode: "visible", path: "~/Journal" }) // a real folder the user can open
+const files = await papp.open({ mode: "private" })                    // a store the library owns
+papp.files // the same object, ready after open
+```
+
+- Choose one mode per app.
+- **Visible**: desktop only (Node, Electron main). A real folder. The user can open and edit files with any program. The library watches the folder, so outside edits sync too. `path` is the folder, absolute or starting with `~/`.
+- **Private**: every platform. A store the library owns. In a browser it is the origin private file system. The user cannot browse it. No watcher: only writes through `papp.files` sync.
+- Browser and phones: private only. `"visible"` throws.
+- Path rules are the same in both modes, so a private app can become visible later.
+- One app, one folder. Opening a visible folder throws `folder-taken` if another app already uses it, or if it is inside or around another app's folder. Do not point two apps at the same folder, or a folder inside another.
+- Signed out: `open` throws `signed-out`.
+- The library keeps its state in a hidden folder `.pappdrive/` inside a visible folder. Do not touch it. Deleting it is safe: the next open rebuilds it. A deletion made while it was missing is lost (the file comes back).
+
+## 6. Files
+
+```ts
+await files.write("2026-10-17.md", "# Friday\n")  // string, Uint8Array, Blob or ReadableStream<Uint8Array>
+const bytes = await files.read("2026-10-17.md")   // Uint8Array, whole file in memory
+const text = await files.readText("2026-10-17.md") // string (UTF-8)
+const stream = files.readStream("video/talk.mp4")  // ReadableStream<Uint8Array>, for big files
+const top = await files.list()                     // top level: [{ path, size, mtime, dir }]
+const inNotes = await files.list("notes")          // inside the folder "notes"
+await files.remove("old.md")
+```
+
+- Every call works offline. Sync catches up later.
+- `write` creates or replaces the whole file. There is no append and no partial write.
+- No `mkdir`. Writing `notes/todo.md` makes the folder `notes`. A folder exists only while it has files. `list` shows it (`dir: true`) only then. An empty folder never syncs.
+- `list` is not recursive. To walk a tree, call `list(entry.path)` for each entry with `dir: true`.
+- `FileInfo`: `path` (relative to the folder, forward slashes), `size` (bytes), `mtime` (ms since epoch), `dir` (boolean).
+- `read`, `readText` and `remove` on a missing file throw `not-found`.
+- `read` loads the whole file into memory. For big files, read with `readStream` and write a `Blob` or a `ReadableStream`.
+- A bad path throws `bad-path`. A name that differs from an existing one only in capital letters throws `case-clash`. See [Path rules](#12-path-rules).
+- Saves through `files.write` and incoming downloads never race on the same file.
+- A downloaded file lands with one rename. The app never sees a half-written file.
+- Writes to a path matched by `.pappignore` save on this device only. That is how an app keeps a local cache.
+
+## 7. Watch
+
+```ts
+const stop = files.watch(change => {
+  // change.path, change.origin, change.copy?, change.reason?
+  refresh()
+})
+stop() // stop listening
+```
+
+One callback per change. `change.origin`:
+
+| origin | Means | What the app does |
+|---|---|---|
+| `"local"` | This device wrote it: the app, or (visible mode) another program | Refresh the view if it shows the file |
+| `"remote"` | Another device wrote or deleted it. It was just downloaded or removed here | Refresh. If the user is editing that file, do not overwrite their text silently |
+| `"conflict"` | Both sides wrote it. `change.path` holds the version that reached the server first. `change.copy` is the path of this device's version, kept beside it. Also fires when one device made a file and another a folder with the same name | Refresh. Optionally tell the user. Both files are normal files |
+| `"skipped"` | This device cannot use the path. `change.reason` is `"bad name"`. The path is frozen here: nothing syncs for it, other devices keep it | Optionally show it. Nothing to fix in code |
+| `"case-duplicate"` | A second name differs only in capital letters from one already synced (Linux, made by another program). It does not sync. The first still does | Optionally show it |
+
+- A deleted file also fires a change. Check whether it still exists (`list` or `read` with `not-found`) instead of assuming.
+- Files matched by `.pappignore` fire nothing.
+- The simplest correct app re-reads its list on every change.
+
+## 8. Status
+
+```ts
+files.status // { syncing, lastSync, pending, skipped, deleted, error? }
+const stop = files.onStatus(s => render(s)) // called on every change
+await files.sync()                          // run a sync round now, and wait for it
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `syncing` | boolean | A round is running |
+| `lastSync` | number or null | ms since epoch of the last successful round |
+| `pending` | number | Local changes not yet on the server |
+| `skipped` | string[] | Frozen paths, see watch `"skipped"` |
+| `deleted` | `null`, `"app"` or `"account"` | `null` normally. Set once this device learns that the app's folder or the whole account was deleted (on another device or with the CLI). Sync has stopped and the device is signed out. Show the sign-in form again, or a message |
+| `error` | string or null, optional | The last round's error, for example offline or server down. The library retries by itself |
+
+- When a folder is deleted elsewhere: a private folder is deleted on this device too. A visible folder stays on disk, because the files belong to the user. If the user signs in again, they upload as new files.
+- A sync runs: on open, every few seconds while the app is open, and two seconds after the last change (ten at most after the first). When the app goes to the background or closes, it runs at once.
+- A short-lived program (a CLI command) must `await files.sync()` before it exits. Otherwise its changes wait for the next run.
+
+## 9. Reading another app's folder
+
+```ts
+const papp = createPapp({ server, app: "dashboard", read: ["my-notes"] })
+await papp.ready
+const notes = await papp.openReadOnly("my-notes")
+const todo = await notes.readText("todo.md")
+const stop = notes.watch(change => render(change))
+```
+
+- The name must be in `read`. Otherwise `openReadOnly` throws `not-allowed`. Adding a name to `read` needs no new sign-in.
+- The other app must exist, or sign-in fails with `no-app`.
+- Always private, on every platform. It only downloads, so it always matches the server.
+- `read`, `readText`, `readStream`, `list`, `watch`, `status`, `onStatus` and `sync` work. `write` and `remove` throw `read-only`. `notes.readOnly` is `true`.
+- If the other app has not synced yet, or its folder was deleted, the folder is empty.
+
+## 10. Account functions
+
+For an app that builds its own forms or settings screen. The ready-made form covers sign-up, sign-in and recovery.
+
+```ts
+const { recoveryCode } = await papp.signUp(email, password) // show the code once; the user must save it
+await papp.signIn(email, password)
+await papp.recover(email, recoveryCode, newPassword)        // forgot the password, has the code
+await papp.setPassword(newPassword)                         // signed-in device: change or forgot
+await papp.signOut()                                        // removes the data key from this device
+papp.signedIn                                               // true or false
+await papp.deleteApp(password)                              // this app's folder, on every device. Final
+await papp.deleteAccount(password)                          // every app, on every device. Final
+```
+
+- The library hashes the password before anything leaves the device.
+- `setPassword` does not ask for the old password. A signed-in device already holds the key.
+- Before `signOut`, remind the user to keep their password or recovery code.
+- Before `deleteApp` or `deleteAccount`, tell the user to export first (section 18). Both need the password again.
+
+## 11. Errors
+
+Every error the library throws is a `SyncError` with a `code`. Check the code, never the message. The message says what to do next, for example `case-clash: "Todo.md" already exists. Write to "Todo.md", or remove it first.` Read it when debugging.
+
+```ts
+import { SyncError } from "pappdrive"
+
+try {
+  await files.readText("2026-10-17.md")
+} catch (err) {
+  if (err instanceof SyncError && err.code === "not-found") return ""
+  throw err
+}
+```
+
+| `code` | When | What to do |
+|---|---|---|
+| `bad-path` | The path breaks the path rules | Fix the path. Do not pass user input as a path without cleaning it |
+| `case-clash` | `write` with a name that differs from an existing one only in capital letters | Write to the existing spelling, or remove it first |
+| `not-found` | `read`, `readText` or `remove` of a missing file | Treat as empty or already gone |
+| `read-only` | `write` or `remove` on a folder opened with `openReadOnly` | Do not write there. Write in the app's own folder |
+| `not-allowed` | `openReadOnly` with a name not in `read` | Add the name to `read` in `createPapp` |
+| `signed-out` | `open` (or `papp.files`) before sign-in | Show the sign-in form, then open |
+| `folder-taken` | `open` on a visible folder that another app uses, or inside or around one | Choose another folder |
+| `no-app` | Sign-in to an app the user has not created | Tell the user to run `pappdrive apps create <name>`. The message names the command |
+| `credentials` | Wrong email, password or recovery code | Ask again. The form does this |
+| `exists` | `signUp` with an email that already has an account | Sign in instead |
+| `weak-password` | Password shorter than 12 characters | Ask for a longer one |
+| `rate-limited` | Too many tries | Wait `err.retryAfter` seconds |
+| `gone` | The folder or the account was deleted. `err.reason` is `"app"` or `"account"` | Same as `status.deleted`: show sign-in or a message |
+| `network` | No connection, or the server did not answer | Nothing. The data is safe on the device. Sync retries |
+| `server` | The server answered with an unexpected error | Nothing in code. Retry later |
+| `update-needed` | The folder was written by a newer library version | Update the `pappdrive` package |
+
+## 12. Path rules
+
+- Paths are relative to the folder. Forward slash `/` separates folders. No leading slash.
+- No empty segment, no `.` or `..` segment, no control characters.
+- Any other character is allowed, including spaces, `:` and `?`. Windows rules are not applied to every device.
+- At most 255 bytes per segment and 1024 bytes per path, in UTF-8.
+- Stored as Unicode NFC. The library normalizes (macOS writes NFD).
+- `write` refuses a name that differs from an existing one only in capital letters (`case-clash`). Comparison is case-insensitive on every device, because a Mac and Windows treat `Todo.md` and `todo.md` as one file.
+- A file and a folder cannot share a name.
+- A bad path given to `write` throws `bad-path`. A bad name made by another program is skipped and reported through watch. The library never renames a file on its own.
+- A device that cannot create a name (Windows with `a:b.md`) skips it. Other devices keep it. To be safe on every system, avoid `\ : * ? " < > |` in names the app makes.
+- Good file names: dates (`2026-10-17.md`), ids (`notes/k3f9a2.json`), slugs (`recipes/lemon-cake.md`).
+
+## 13. .pappignore
+
+- A file named `.pappignore` works exactly like `.gitignore`. Same patterns, same `!` to un-ignore.
+- It can be in any folder. It applies to that folder and everything inside it.
+- It is a normal file and syncs, so every device uses the same rules. Write it with `files.write(".pappignore", ...)` or as a file in a visible folder.
+- Matching ignores capital letters, on every device.
+- An ignored file stays on its device. It is never uploaded and fires no watch change.
+- A rule only stops files that are not synced yet, like git. A file already synced keeps syncing even if a new rule matches it. Adding a rule never deletes anything, on any device.
+- Always ignored, before any rule:
+  - `.git/` and `.pappdrive/`. No rule can un-ignore these.
+  - `node_modules/`, `.DS_Store`, `Thumbs.db`, `desktop.ini`, `*.swp`, `*.swo`, `*~`, `.#*`, `~$*`. A `!` rule can un-ignore these.
+- Put build output, caches and logs in `.pappignore`. Write it before those files exist. Example:
+
+```gitignore
+dist/
+build/
+.cache/
+cache/
+*.log
+tmp/
+```
+
+## 14. Conflicts
+
+- A conflict happens when two devices change the same file before either syncs. It is rare with one person.
+- The first device to sync keeps the path. The other device's version is kept beside it as a conflict copy:
+
+```
+todo.md
+todo (conflict 2026-10-17 09-15-30).md
+```
+
+- A file with no extension gets the suffix at the end: `notes (conflict 2026-10-17 09-15-30)`. If the name is taken, a counter is added.
+- A file and a folder with the same name (two offline devices): this device's side is renamed the same way. A folder becomes `notes (conflict 2026-10-17 09-15-30)/` with all its files.
+- **A conflict copy is an ordinary file.** It is in the folder, it syncs to every device, and it shows in `list`. The app must not break on it:
+  - Do not assume every file name matches the app's own pattern. A file named `2026-10-17 (conflict 2026-10-17 09-15-30).md` must not crash a date parser. Show it like any other file, or group it with the file it came from.
+  - Do not assume one file per id. A JSON record and its conflict copy may hold the same `id` field.
+  - JSON in a conflict copy is still valid JSON. Parse each file inside `try`, and skip or show files that fail.
+- Only the device that hit the conflict gets a `"conflict"` watch change. Other devices just see a new file.
+- An app may show a merge screen, or let the user delete the copy. No app has to.
+- Edit against delete is not a conflict. The edit wins and the file comes back.
+- Identical edits on two devices are not a conflict.
+- Merging inside a file does not exist. Design data so two devices rarely write the same file (next section).
+
+## 15. Rules for app design
+
+- **One file per record.** One Markdown file per journal day, one JSON file per note or task. Not one big file for everything. Two devices then rarely touch the same file, and a conflict copies one small record, not the whole app.
+- **Do not sync a database.** No SQLite, no IndexedDB dump, no big JSON array as the app's data. Every change uploads at least one 16 MiB part of a big file, and a conflict copy of a database helps nobody.
+- **If an app truly needs a database** (documented pattern, not built into the library): do not sync the database itself. Each device appends change files at `changes/<install-id>/<n>.json`, where `<install-id>` is a random id the app makes once per install and keeps in an ignored file, and `<n>` counts up. Every device rebuilds its local database from everyone's change files and keeps that database in an ignored path (for example `cache/db.sqlite`, with `cache/` in `.pappignore`). Each path is written by one device only, so nothing conflicts.
+- **Build output, caches and logs go in `.pappignore`.** Write `.pappignore` first.
+- **Small files.** Text and JSON are best. Images and media work. Large files (video) work, read them with `readStream`.
+- **Read from the folder, not from memory.** After a `"remote"` or `"conflict"` change, re-read. Another device may have changed anything.
+- **Let the user see their data.** On desktop, prefer visible mode with readable formats (Markdown, JSON). Any program can then open the folder.
+- **Keep the server URL out of the code** when practical: an environment variable or a config file.
+
+## 16. Platforms
+
+| Platform | Adapter | Modes | Watcher | Key storage |
+|---|---|---|---|---|
+| Node, CLI | node | visible, private | yes (visible) | system keychain, or `~/.config/pappdrive/` |
+| Electron | node in the main process; form in the window | visible, private | yes (visible) | keychain, or a `keyStore` on `safeStorage` |
+| Browser | browser | private (OPFS) | no | IndexedDB |
+| Phone (Capacitor) | browser | private | no | the phone's secure storage |
+
+- **Phones and browsers sync only while the app is open.** No background work. Changes reach other devices the next time the app runs. Tell the user this if it matters.
+- **Browser: one tab syncs.** It holds a lock (Web Locks API). Other tabs of the same app still read and write; their writes go through the tab that syncs. When that tab closes, another takes over.
+- Browsers can clear site storage. The library asks to keep it (`navigator.storage.persist()`). If storage is cleared, the user signs in again and the folder downloads again. Changes not yet uploaded are lost. Safari may clear a site's storage after 7 days without a visit.
+- Electron: run `papp` in the main process (node adapter, visible folder, watcher). The window gets data over IPC and imports only `"pappdrive/ui"`. Do not create a second `papp` in the window.
+
+## 17. Limits
+
+- No size limit per file. Files over 16 MiB are cut into 16 MiB parts. Changing a big file uploads every part it touched. Appending at the end uploads only the last parts; inserting near the start uploads them all.
+- At most one commit per second per folder. Writes are batched: a burst of saves becomes one commit.
+- The server keeps recent versions of the index for one hour (at least the last five). There are no backups and no long-term history.
+- No merging inside a file. No queries across files. No share links. Every device stores the whole folder.
+- Not set yet: a storage quota per user and a limit on uploads per hour.
+
+## 18. Passwords, export and deletion
+
+- **We cannot recover your password. Your other devices or your recovery code can.** Put this sentence where the user signs up or changes the password, if the app has its own forms.
+- Forgot the password: on a signed-in device, `setPassword(newPassword)`. On a new device, sign in with the recovery code (the form, or `recover`). With neither, the data cannot be opened. There is no email reset.
+- Data is lost only if the user loses all three: the password, every signed-in device, and the recovery code.
+- **Export before deleting.** `pappdrive export <app> <dir>` downloads and decrypts the whole folder into normal files. It takes the password or the recovery code.
+- `deleteApp`, `deleteAccount`, `pappdrive delete-app` and `pappdrive delete-account` are final. No undo, no waiting period. Each device learns it at its next sync (`status.deleted`).
+
+## 19. Checklist
+
+1. The user ran `pappdrive apps create <name>` (or signs up in the app's form).
+2. `createPapp({ server, app })`, `await papp.ready`.
+3. If `!papp.signedIn`: `signInForm` (UI) or `signInPrompt` (terminal).
+4. `papp.open(...)`: `"visible"` on desktop if the user wants to see the files, `"private"` otherwise. Browser: `"private"`.
+5. One file per record. `.pappignore` for build output, caches and logs.
+6. `files.watch` re-reads the view. Conflict copies show as normal files and do not break parsing.
+7. `files.onStatus`: show sync state, and handle `deleted`.
+8. Errors checked by `err.code`.
+9. CLI commands `await files.sync()` before exit.
+10. Examples to copy: [journal-electron](../examples/journal-electron/), [notes-cli](../examples/notes-cli/), [journal-web](../examples/journal-web/).

@@ -1,0 +1,19 @@
+{
+  "name": "pappdrive-example-journal-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A journal in the browser that syncs with your other devices. One Markdown file per day.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "pappdrive": "^0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.0",
+    "vite": "^7.0.0"
+  }
+}
