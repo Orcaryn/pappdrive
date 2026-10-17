@@ -1,0 +1,19 @@
+{
+  "name": "pappdrive-example-journal-electron",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A journal that syncs between your computers. One Markdown file per day in ~/Journal.",
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "build": "esbuild renderer.js --bundle --format=esm --platform=browser --outfile=dist/renderer.js",
+    "start": "npm run build && electron ."
+  },
+  "dependencies": {
+    "pappdrive": "^0.1.0"
+  },
+  "devDependencies": {
+    "electron": "^38.0.0",
+    "esbuild": "^0.25.0"
+  }
+}

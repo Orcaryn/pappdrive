@@ -1,0 +1,96 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color: #222;
+  background: #faf9f6;
+}
+body {
+  margin: 0;
+  height: 100vh;
+}
+#sign-in-screen {
+  max-width: 420px;
+  margin: 10vh auto;
+}
+.small {
+  font-size: 0.85em;
+  color: #666;
+}
+#journal-screen:not([hidden]) {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  height: 100vh;
+}
+aside {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #ddd;
+  padding: 12px;
+  gap: 8px;
+  min-height: 0;
+}
+#entries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+}
+#entries li {
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#entries li.current {
+  background: #e8e4da;
+}
+#entries li.conflict {
+  font-style: italic;
+  color: #8a5a00;
+}
+aside footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 0.8em;
+  color: #666;
+}
+#status {
+  flex-basis: 100%;
+}
+main {
+  display: flex;
+  flex-direction: column;
+  padding: 16px 24px;
+  min-height: 0;
+}
+main header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+#notice:not([hidden]) {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  background: #fff4d6;
+  border: 1px solid #e6c97a;
+  padding: 8px 12px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+#notice-text {
+  flex: 1;
+}
+#editor {
+  flex: 1;
+  font: 16px/1.6 Georgia, serif;
+  border: none;
+  background: transparent;
+  resize: none;
+  outline: none;
+}
+
+aside footer .small {
+  flex-basis: 100%;
+}

@@ -2,7 +2,9 @@
   "name": "pappdrive-cli",
   "version": "0.1.0",
   "type": "module",
-  "bin": { "pappdrive": "./src/main.ts" },
+  "bin": {
+    "pappdrive": "./bin/pappdrive.js"
+  },
   "scripts": {
     "typecheck": "tsc -p .",
     "test": "vitest run --passWithNoTests"
@@ -10,5 +12,8 @@
   "dependencies": {
     "pappdrive": "workspace:*",
     "@pappdrive/protocol": "workspace:*"
+  },
+  "engines": {
+    "node": ">=23.6"
   }
 }

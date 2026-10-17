@@ -145,6 +145,9 @@ export interface RefreshResponse {
 export interface PasswordRequest {
   loginKey: string
   passwordCopy: string
+  // The Argon2id settings the device used for the new login key. The server stores them,
+  // so a library built with older defaults still signs in later. Rejected if weaker than DEFAULT_ARGON2.
+  params?: Argon2Params
 }
 
 export interface AppInfo {
