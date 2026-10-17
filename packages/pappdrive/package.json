@@ -1,0 +1,30 @@
+{
+  "name": "pappdrive",
+  "version": "0.1.0",
+  "description": "A synced, end-to-end encrypted folder for personal apps.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "browser": "./src/browser/index.ts",
+      "node": "./src/node/index.ts",
+      "default": "./src/browser/index.ts"
+    },
+    "./ui": "./src/ui/index.ts",
+    "./node": "./src/node/index.ts",
+    "./browser": "./src/browser/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@pappdrive/protocol": "workspace:*",
+    "hash-wasm": "^4.12.0",
+    "ignore": "^7.0.5"
+  },
+  "optionalDependencies": {
+    "@parcel/watcher": "^2.5.0",
+    "@napi-rs/keyring": "^1.1.0"
+  }
+}
