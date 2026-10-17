@@ -1,25 +1,38 @@
-// Plain argv parsing, no framework.
+import { parseArgs as parseArgv } from "node:util"
 
-export class UsageError extends Error {
-  constructor(message: string) {
+/** An error already explained in plain words. Usage errors exit with 2, the rest with 1. */
+export class CliError extends Error {
+  constructor(
+    message: string,
+    readonly exitCode = 1,
+  ) {
     super(message)
-    this.name = "UsageError"
   }
 }
 
-const VALUE_FLAGS = new Set(["server", "email", "app"])
-const BOOLEAN_FLAGS = new Set(["recovery", "force", "help", "version"])
-const SHORT: Record<string, string> = { h: "help", v: "version" }
+const usageError = (message: string) => new CliError(message, 2)
+
+export type Command = "signup" | "login" | "logout" | "apps list" | "apps create" | "export" | "delete-app" | "delete-account"
 
 export interface Parsed {
-  /** "signup", "login", "logout", "apps list", "apps create", "export", "delete-app", "delete-account", "help", "version" */
-  command: string
+  command: Command | "help" | "version"
   args: string[]
   flags: { server?: string; email?: string; app?: string; recovery?: boolean; force?: boolean }
 }
 
-/** The commands, with the number of arguments each takes. */
-const COMMANDS: Record<string, { args: string[]; flags: string[] }> = {
+const OPTIONS = {
+  server: { type: "string" },
+  email: { type: "string" },
+  app: { type: "string" },
+  recovery: { type: "boolean" },
+  force: { type: "boolean" },
+  help: { type: "boolean", short: "h" },
+  version: { type: "boolean", short: "v" },
+} as const
+
+const EXAMPLE: Record<string, string> = { server: "https://sync.example.com", email: "me@example.com", app: "my-notes" }
+
+const COMMANDS: Record<Command, { args: string[]; flags: string[] }> = {
   signup: { args: [], flags: ["server", "email", "app"] },
   login: { args: [], flags: ["server", "email"] },
   logout: { args: [], flags: ["server"] },
@@ -28,114 +41,74 @@ const COMMANDS: Record<string, { args: string[]; flags: string[] }> = {
   export: { args: ["app", "dir"], flags: ["server", "email", "recovery", "force"] },
   "delete-app": { args: ["name"], flags: ["server", "email"] },
   "delete-account": { args: [], flags: ["server", "email"] },
-  help: { args: [], flags: [] },
-  version: { args: [], flags: [] },
 }
 
 export function parseArgs(argv: string[]): Parsed {
-  const words: string[] = []
+  // Not strict, so each mistake gets its own message below.
+  const { tokens, positionals: words } = parseArgv({ args: argv, options: OPTIONS, allowPositionals: true, strict: false, tokens: true })
   const flags: Record<string, string | boolean> = {}
-  let rest = false
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i]!
-    if (rest || !a.startsWith("-") || a === "-") {
-      words.push(a)
-      continue
-    }
-    if (a === "--") {
-      rest = true
-      continue
-    }
-    let name: string
-    let value: string | undefined
-    if (a.startsWith("--")) {
-      const eq = a.indexOf("=")
-      name = eq < 0 ? a.slice(2) : a.slice(2, eq)
-      value = eq < 0 ? undefined : a.slice(eq + 1)
+  for (const t of tokens) {
+    if (t.kind !== "option") continue
+    if (!Object.hasOwn(OPTIONS, t.name)) throw usageError(`Unknown option ${t.rawName}. Run \`pappdrive help\` to see the options.`)
+    if (OPTIONS[t.name as keyof typeof OPTIONS].type === "string") {
+      if (!t.value || t.value.startsWith("--")) throw usageError(`--${t.name} needs a value, like --${t.name} ${EXAMPLE[t.name]}.`)
+      flags[t.name] = t.value
     } else {
-      name = SHORT[a.slice(1)] ?? ""
-      if (!name) throw new UsageError(`Unknown option ${a}. Run \`pappdrive help\` to see the options.`)
-    }
-    if (VALUE_FLAGS.has(name)) {
-      if (value === undefined) {
-        const next = argv[i + 1]
-        if (next === undefined || next.startsWith("--")) throw new UsageError(`--${name} needs a value, like --${name} ${example(name)}.`)
-        value = next
-        i++
-      }
-      if (value === "") throw new UsageError(`--${name} needs a value, like --${name} ${example(name)}.`)
-      flags[name] = value
-    } else if (BOOLEAN_FLAGS.has(name)) {
-      if (value !== undefined) throw new UsageError(`--${name} takes no value. Write just --${name}.`)
-      flags[name] = true
-    } else {
-      throw new UsageError(`Unknown option --${name}. Run \`pappdrive help\` to see the options.`)
+      if (t.value !== undefined) throw usageError(`--${t.name} takes no value. Write just --${t.name}.`)
+      flags[t.name] = true
     }
   }
 
   if (flags.version) return { command: "version", args: [], flags: {} }
-  if (flags.help || words.length === 0 || words[0] === "help") return { command: "help", args: words.slice(1), flags: {} }
+  if (flags.help || words.length === 0 || words[0] === "help") return { command: "help", args: [], flags: {} }
 
-  let command = words[0]!
-  let args = words.slice(1)
-  if (command === "apps") {
-    const sub = args[0]
+  let [name, ...args] = words as [string, ...string[]]
+  if (name === "apps") {
+    const sub = args.shift()
     if (sub !== "list" && sub !== "create") {
-      throw new UsageError(
+      throw usageError(
         sub === undefined
           ? "`pappdrive apps` needs a subcommand: `pappdrive apps list` or `pappdrive apps create <name>`."
           : `Unknown subcommand "apps ${sub}". Use \`pappdrive apps list\` or \`pappdrive apps create <name>\`.`,
       )
     }
-    command = `apps ${sub}`
-    args = args.slice(1)
+    name = `apps ${sub}`
   }
+  if (!Object.hasOwn(COMMANDS, name)) throw usageError(`Unknown command "${name}". Run \`pappdrive help\` to see the commands.`)
+  const command = name as Command
   const spec = COMMANDS[command]
-  if (!spec) throw new UsageError(`Unknown command "${command}". Run \`pappdrive help\` to see the commands.`)
   if (args.length !== spec.args.length) {
     const usage = `pappdrive ${command}${spec.args.map((a) => ` <${a}>`).join("")}`
-    throw new UsageError(
+    throw usageError(
       args.length < spec.args.length
         ? `Missing ${spec.args.slice(args.length).map((a) => `<${a}>`).join(" and ")}. Usage: ${usage}`
         : `Too many arguments: ${args.slice(spec.args.length).join(" ")}. Usage: ${usage}`,
     )
   }
   for (const f of Object.keys(flags)) {
-    if (!spec.flags.includes(f)) throw new UsageError(`\`pappdrive ${command}\` does not take --${f}.`)
+    if (!spec.flags.includes(f)) throw usageError(`\`pappdrive ${command}\` does not take --${f}.`)
   }
-  return { command, args, flags: flags as Parsed["flags"] }
+  return { command, args, flags }
 }
 
-function example(name: string): string {
-  return name === "server" ? "https://sync.example.com" : name === "email" ? "me@example.com" : "my-notes"
-}
-
-/** "https://sync.example.com/" or ".../v1" -> "https://sync.example.com". Refuses anything but http(s). */
-export function normalizeServer(raw: string): string {
-  let url: URL
-  try {
-    url = new URL(raw.trim())
-  } catch {
-    throw new UsageError(`"${raw}" is not a server address. Give the full address, like --server https://sync.example.com.`)
+/** --server, then $PAPPDRIVE_SERVER, then the saved one. "https://sync.example.com/v1/" -> "https://sync.example.com". */
+export function resolveServer(flag: string | undefined, env: string | undefined, saved: string | undefined): string {
+  const raw = flag || env || saved
+  if (!raw) {
+    throw usageError(
+      "Which server? Pass --server https://sync.example.com, or set PAPPDRIVE_SERVER. After the first signup or login it is remembered.",
+    )
   }
+  if (!URL.canParse(raw.trim())) {
+    throw usageError(`"${raw}" is not a server address. Give the full address, like --server https://sync.example.com.`)
+  }
+  const url = new URL(raw.trim())
   if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new UsageError(`"${raw}" is not an http or https address. Use --server https://sync.example.com.`)
+    throw usageError(`"${raw}" is not an http or https address. Use --server https://sync.example.com.`)
   }
   url.search = ""
   url.hash = ""
   return url.toString().replace(/\/+$/, "").replace(/\/v1$/, "")
-}
-
-/** --server, then $PAPPDRIVE_SERVER, then the saved config. */
-export function resolveServer(flag: string | undefined, env: string | undefined, saved: string | undefined): string {
-  const raw = flag ?? (env || undefined) ?? saved
-  if (!raw) {
-    throw new UsageError(
-      "Which server? Pass --server https://sync.example.com, or set PAPPDRIVE_SERVER. " +
-        "After the first signup or login it is remembered.",
-    )
-  }
-  return normalizeServer(raw)
 }
 
 export const HELP = `pappdrive: accounts, apps and exports for pappdrive sync.

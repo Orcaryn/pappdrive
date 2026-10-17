@@ -1,15 +1,14 @@
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, mkdirSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { type IndexBody, type IndexFile, PART_SIZE } from "@pappdrive/protocol"
-import { fromBase64 } from "../../pappdrive/src/core/bytes.js"
+import { fromBase64, toBase64 } from "../../pappdrive/src/core/bytes.js"
 import * as c from "../../pappdrive/src/core/crypto.js"
 import { ApiError } from "../../pappdrive/src/core/errors.js"
 import type { KeyStore } from "../../pappdrive/src/core/types.js"
 import type { Prompter } from "../../pappdrive/src/node/prompt.js"
-import { normalizeServer, parseArgs, resolveServer, UsageError } from "../src/args.js"
-import { Client } from "../src/client.js"
+import { CliError, parseArgs, resolveServer } from "../src/args.js"
 import * as cmd from "../src/commands.js"
 import { planExport, runExport } from "../src/export.js"
 
@@ -22,6 +21,9 @@ const tmp = (label: string) => {
 const savedXdg = process.env.XDG_CONFIG_HOME
 beforeAll(() => {
   process.env.XDG_CONFIG_HOME = tmp("config") // never touch the real ~/.config
+})
+afterEach(() => {
+  vi.unstubAllGlobals()
 })
 afterAll(() => {
   if (savedXdg === undefined) delete process.env.XDG_CONFIG_HOME
@@ -70,7 +72,7 @@ describe("parseArgs", () => {
       [["export", "a", "b", "--recovery=yes"], /takes no value/],
     ]
     for (const [argv, msg] of bad) {
-      expect(() => parseArgs(argv), argv.join(" ")).toThrow(UsageError)
+      expect(() => parseArgs(argv), argv.join(" ")).toThrow(CliError)
       expect(() => parseArgs(argv), argv.join(" ")).toThrow(msg)
     }
   })
@@ -79,8 +81,8 @@ describe("parseArgs", () => {
     expect(resolveServer(undefined, "https://b.x/v1", "https://c.x")).toBe("https://b.x")
     expect(resolveServer(undefined, "", "https://c.x/base/")).toBe("https://c.x/base")
     expect(() => resolveServer(undefined, undefined, undefined)).toThrow(/--server.*PAPPDRIVE_SERVER/)
-    expect(() => normalizeServer("sync.example.com")).toThrow(/full address/)
-    expect(() => normalizeServer("ftp://x")).toThrow(/http or https/)
+    expect(() => resolveServer("sync.example.com", undefined, undefined)).toThrow(/full address/)
+    expect(() => resolveServer("ftp://x", undefined, undefined)).toThrow(/http or https/)
   })
 })
 
@@ -98,7 +100,7 @@ describe("planExport", () => {
       ".pappdrive/x": e(),
       "a:b.md": e(),
     }
-    const insensitive = planExport(body, { caseInsensitive: true, canCreate: (s) => !s.includes(":") })
+    const insensitive = planExport(body, true, (s) => !s.includes(":"))
     expect(insensitive.items.map((i) => i.path).sort()).toEqual(["Notes/b.md", "Todo.md", "notes/a.md", "ok.md"])
     const reasons = Object.fromEntries(insensitive.skipped.map((s) => [s.path, s.reason]))
     expect(reasons["todo.md"]).toMatch(/only in capital letters/)
@@ -106,18 +108,17 @@ describe("planExport", () => {
     expect(reasons["../evil"]).toMatch(/not a valid path/)
     expect(reasons[".pappdrive/x"]).toMatch(/reserved/)
     expect(reasons["a:b.md"]).toMatch(/cannot create the name "a:b.md"/)
-    const sensitive = planExport(body, { caseInsensitive: false, canCreate: () => true })
+    const sensitive = planExport(body, false, () => true)
     expect(sensitive.items.map((i) => i.path)).toContain("todo.md")
     expect(sensitive.items.map((i) => i.path)).toContain("a:b.md")
   })
 })
 
-// ---------- A fake server and storage, in memory ----------
+// ---------- A fake server and storage, in memory, as the global fetch ----------
 
 const PARAMS = { m: 256, t: 1, p: 1 } // fast Argon2 for tests
 
 interface Fake {
-  fetch: typeof fetch
   requests: { route: string; body: unknown; auth: string | null }[]
   setFolder(index: IndexFile | null, blobs: Map<string, Uint8Array>): void
   signup?: Record<string, unknown>
@@ -132,44 +133,44 @@ function fakeServer(): Fake {
       index = i
       blobs = b
     },
-    fetch: (async (input: string | URL | Request, init?: RequestInit) => {
-      const url = new URL(String(input))
-      const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { "content-type": "application/json" } })
-      if (url.host === "r2.test") {
-        if (url.pathname === "/index") return index ? json(index) : new Response("", { status: 404 })
-        const b = blobs.get(url.pathname.slice(1))
-        return b ? new Response(new Uint8Array(b)) : new Response("", { status: 404 })
-      }
-      const route = url.pathname.replace(/^\/v1/, "") + url.search
-      const body = init?.body ? JSON.parse(String(init.body)) : undefined
-      const auth = new Headers(init?.headers).get("authorization")
-      fake.requests.push({ route, body, auth })
-      if (route === "/auth/params") return json(PARAMS)
-      if (route === "/auth/signup") {
-        fake.signup = body
-        return json({ accessToken: "acc", refreshToken: "ref", installId: "inst" })
-      }
-      if (route === "/auth/login") {
-        if (body.loginKey !== fake.signup?.loginKey) return json({ error: "credentials" }, 401)
-        return json({ accessToken: "acc", refreshToken: "ref2", installId: "inst2", passwordCopy: fake.signup?.passwordCopy })
-      }
-      if (route === "/auth/refresh") return json({ accessToken: "acc" })
-      if (route === "/auth/logout") return new Response(null, { status: 204 })
-      if (route === "/apps" && init?.method === "GET") return json([{ name: "my-notes", created: 0 }])
-      if (route === "/apps") return body.name === "taken" ? json({ error: "exists" }, 409) : new Response(null, { status: 201 })
-      if (route.startsWith("/index/link")) return json({ url: "https://r2.test/index", expires: Date.now() + 1e6 })
-      if (route.startsWith("/blobs/download")) return json((body as string[]).map((id) => ({ id, url: `https://r2.test/${id}` })))
-      if (route === "/app/delete" || route === "/account/delete") return new Response(null, { status: 204 })
-      return json({ error: "bad-request" }, 400)
-    }) as typeof fetch,
   }
+  const fakeFetch = async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(String(input))
+    const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { "content-type": "application/json" } })
+    if (url.host === "r2.test") {
+      if (url.pathname === "/index") return index ? json(index) : new Response("", { status: 404 })
+      const b = blobs.get(url.pathname.slice(1))
+      return b ? new Response(new Uint8Array(b)) : new Response("", { status: 404 })
+    }
+    const route = url.pathname.replace(/^\/v1/, "") + url.search
+    const body = init?.body ? JSON.parse(String(init.body)) : undefined
+    const auth = new Headers(init?.headers).get("authorization")
+    fake.requests.push({ route, body, auth })
+    if (route === "/auth/params") return json(PARAMS)
+    if (route === "/auth/signup") {
+      fake.signup = body
+      return json({ accessToken: "acc", refreshToken: "ref", installId: "inst" })
+    }
+    if (route === "/auth/login") {
+      if (body.loginKey !== fake.signup?.loginKey) return json({ error: "credentials" }, 401)
+      return json({ accessToken: "acc", refreshToken: "ref2", installId: "inst2", passwordCopy: fake.signup?.passwordCopy })
+    }
+    if (route === "/auth/refresh") return json({ accessToken: "acc" })
+    if (route === "/auth/logout") return new Response(null, { status: 204 })
+    if (route === "/apps" && init?.method === "GET") return json([{ name: "my-notes", created: 0 }])
+    if (route === "/apps") return body.name === "taken" ? json({ error: "exists" }, 409) : json({ name: body.name, created: 0 }, 201)
+    if (route.startsWith("/index/link")) return json({ url: "https://r2.test/index", expires: Date.now() + 1e6 })
+    if (route.startsWith("/blobs/download")) return json((body as string[]).map((id) => ({ id, url: `https://r2.test/${id}` })))
+    if (route === "/app/delete" || route === "/account/delete") return new Response(null, { status: 204 })
+    return json({ error: "bad-request" }, 400)
+  }
+  vi.stubGlobal("fetch", fakeFetch)
   return fake
 }
 
-function memoryKeyStore(): KeyStore & { data: Map<string, string> } {
+function memoryKeyStore(): KeyStore {
   const data = new Map<string, string>()
   return {
-    data,
     get: async (n) => data.get(n) ?? null,
     set: async (n, v) => void data.set(n, v),
     delete: async (n) => void data.delete(n),
@@ -195,14 +196,15 @@ function fakePrompter(answer: (q: string, said: string) => string): Prompter & {
   }
 }
 
-function ctxFor(fake: Fake, p: Prompter, flags: cmd.Ctx["flags"] = {}): cmd.Ctx & { lines: string[] } {
+
+function ctxFor(p: Prompter, flags: cmd.Ctx["flags"] = {}): cmd.Ctx & { lines: string[] } {
   const lines: string[] = []
   return {
     server: "https://sync.test",
     flags,
     config: {},
-    client: new Client("https://sync.test", fake.fetch),
     keyStore: memoryKeyStore(),
+    sessionName: "pappdrive-cli:https://sync.test",
     p,
     out: (l) => void lines.push(l),
     status: () => {},
@@ -224,7 +226,7 @@ describe("commands against a fake server", () => {
       }
       throw new Error(`unexpected question ${q}`)
     })
-    const ctx = ctxFor(fake, p, { app: "my-notes" })
+    const ctx = ctxFor(p, { app: "my-notes" })
     await cmd.signup(ctx)
     const s = fake.signup as Record<string, string>
     expect(s.email).toBe("me@example.com")
@@ -237,42 +239,34 @@ describe("commands against a fake server", () => {
     expect((await c.unlockDataKey(s.passwordCopy!, pk.passwordKey)).length).toBe(32)
     expect(p.said()).toContain("does not match")
     expect(p.said()).toContain("Recovery code confirmed")
-    const saved = JSON.parse([...(ctx.keyStore as ReturnType<typeof memoryKeyStore>).data.values()][0]!)
-    expect(saved).toEqual({ email: "me@example.com", refreshToken: "ref", installId: "inst" })
+    expect(await ctx.keyStore.get(ctx.sessionName)).toBe("ref")
     expect(ctx.lines.join("\n")).toContain('The app "my-notes" is created')
   })
 
   it("apps list and create use the saved sign-in; errors say the fix", async () => {
     const fake = fakeServer()
-    const ctx = ctxFor(fake, fakePrompter(() => ""))
-    await (ctx.keyStore as KeyStore).set("pappdrive-cli:https://sync.test", JSON.stringify({ email: "a@b.c", refreshToken: "r", installId: "i" }))
+    const ctx = ctxFor(fakePrompter(() => ""))
+    await ctx.keyStore.set(ctx.sessionName, "r")
     await cmd.appsList(ctx)
     expect(ctx.lines.join("\n")).toContain("my-notes")
     await cmd.appsCreate(ctx, "journal")
     expect(fake.requests.filter((r) => r.route === "/apps").at(-1)).toMatchObject({ body: { name: "journal" }, auth: "Bearer acc" })
     const err = await cmd.appsCreate(ctx, "taken").catch((e: unknown) => e)
     expect(err).toBeInstanceOf(ApiError)
-    expect(cmd.describeError(err, ctx.server, "create", "taken")).toMatch(/already have an app named "taken"/)
+    expect(cmd.describeError(err, ctx.server, "apps create", "taken")).toMatch(/already have an app named "taken"/)
     await expect(cmd.appsCreate(ctx, "Bad Name")).rejects.toThrow(/lowercase letters, digits and -/)
   })
 
-  it("maps rate limits, no-app and network failures to plain words", async () => {
-    const limited = new Client("https://s.test", (async () =>
-      new Response(JSON.stringify({ error: "rate-limited" }), { status: 429, headers: { "Retry-After": "37" } })) as unknown as typeof fetch)
-    const e = await limited.params("a@b.c").catch((x: unknown) => x)
-    expect((e as ApiError).retryAfter).toBe(37)
-    expect(cmd.describeError(e, "https://s.test", "login")).toBe("Too many tries. Wait 37 seconds, then run the command again.")
+  it("maps rate limits, no-app and network failures to plain words", () => {
+    const limited = new ApiError(429, "rate-limited", { retryAfter: 37 })
+    expect(cmd.describeError(limited, "https://s.test", "login")).toBe("Too many tries. Wait 37 seconds, then run the command again.")
     expect(cmd.describeError(new ApiError(404, "no-app"), "https://s.test", "export", "notes")).toMatch(/pappdrive apps create notes/)
-    const down = new Client("https://s.test", (async () => {
-      throw new TypeError("fetch failed")
-    }) as unknown as typeof fetch)
-    const n = await down.params("a@b.c").catch((x: unknown) => x)
-    expect(cmd.describeError(n, "https://s.test")).toMatch(/Could not reach https:\/\/s.test/)
+    expect(cmd.describeError(new ApiError(0, "network"), "https://s.test")).toMatch(/Could not reach https:\/\/s.test/)
   })
 
   it("delete-app needs the name typed back before anything is sent", async () => {
     const fake = fakeServer()
-    const ctx = ctxFor(fake, fakePrompter((q) => (q.includes("type the app's name") ? "wrong" : "")))
+    const ctx = ctxFor(fakePrompter((q) => (q.includes("type the app's name") ? "wrong" : "")))
     await expect(cmd.deleteApp(ctx, "my-notes")).rejects.toThrow(/Nothing was deleted/)
     expect(fake.requests).toHaveLength(0)
     expect(ctx.lines.join("\n")).toMatch(/pappdrive export my-notes <folder>/)
@@ -287,7 +281,7 @@ describe("export", () => {
   const mtime = 1760690000000
 
   beforeAll(async () => {
-    keys = await c.dataKeys(c.newDataKey())
+    keys = await c.dataKeys(c.randomBytes(32))
     blobs = new Map()
     const header: Record<string, number> = {}
     const put = async (pt: Uint8Array) => {
@@ -310,14 +304,14 @@ describe("export", () => {
     index = { v: 1, blobs: header, body: await c.encodeBody(keys, body) }
   })
 
-  const run = (dir: string, fake: Fake, force = false) =>
-    runExport({ client: new Client("https://sync.test", fake.fetch), token: "acc", app: "my-notes", dir, keys, force, log: () => {}, fetchFn: fake.fetch })
+  const run = (dir: string, force = false) =>
+    runExport({ server: "https://sync.test", token: "acc", app: "my-notes", dir, keys, force, progress: () => {} })
 
   it("downloads and decrypts every file, big files in parts, with their modified times", async () => {
     const fake = fakeServer()
     fake.setFolder(index, blobs)
     const dir = join(tmp("export"), "out")
-    const r = await run(dir, fake)
+    const r = (await run(dir))!
     expect(r.failed).toEqual([])
     expect(r.written).toBe(4)
     expect(readFileSync(join(dir, "notes", "todo.md"), "utf8")).toBe("hello")
@@ -337,9 +331,9 @@ describe("export", () => {
     fake.setFolder(index, blobs)
     const dir = tmp("export-force")
     writeFileSync(join(dir, "other.txt"), "x")
-    await expect(run(dir, fake)).rejects.toThrow(/not empty.*--force/)
-    expect((await run(dir, fake, true)).written).toBe(4)
-    const again = await run(dir, fake, true)
+    await expect(run(dir)).rejects.toThrow(/not empty.*--force/)
+    expect((await run(dir, true))!.written).toBe(4)
+    const again = (await run(dir, true))!
     expect(again.written).toBe(0)
     expect(again.unchanged).toBe(4)
   })
@@ -352,7 +346,7 @@ describe("export", () => {
     tampered.set(first!, other) // wrong contents under the first id
     fake.setFolder(index, tampered)
     const dir = join(tmp("export-bad"), "out")
-    const r = await run(dir, fake)
+    const r = (await run(dir))!
     expect(r.failed.length).toBeGreaterThan(0)
     expect(r.written + r.failed.length).toBe(4)
     expect(r.failed[0]!.reason).toMatch(/does not match its id|did not decrypt/)
@@ -361,21 +355,19 @@ describe("export", () => {
   it("an app with no index exports nothing", async () => {
     const fake = fakeServer()
     fake.setFolder(null, new Map())
-    expect((await run(join(tmp("export-empty"), "out"), fake)).empty).toBe(true)
+    expect(await run(join(tmp("export-empty"), "out"))).toBeNull()
   })
 
   it("export command: signs in without an app, reading <app>, and signs that install out after", async () => {
     const fake = fakeServer()
     // An account made by signup, whose data key encrypted the folder.
     const pk = await c.deriveFromPassword("me@example.com", PASSWORD, PARAMS)
-    const { toBase64 } = await import("../../pappdrive/src/core/bytes.js")
     fake.signup = { loginKey: toBase64(pk.loginKey), passwordCopy: await c.lockDataKey(keys.raw, pk.passwordKey) }
     fake.setFolder(index, blobs)
     const dir = join(tmp("export-cmd"), "out")
     mkdirSync(dir)
     let tries = 0
     const ctx = ctxFor(
-      fake,
       fakePrompter((q) => (q.startsWith("Email") ? "me@example.com" : tries++ === 0 ? "wrong password!" : PASSWORD)),
     )
     await cmd.exportApp(ctx, "my-notes", dir)

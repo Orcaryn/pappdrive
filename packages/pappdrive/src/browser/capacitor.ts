@@ -8,55 +8,35 @@
 //   createPapp({ server, app, keyStore: capacitorKeyStore(SecureStoragePlugin) })
 import type { KeyStore } from "../core/types.js"
 
-/** @aparajita/capacitor-secure-storage: getItem / setItem / removeItem, string values (Keychain / Keystore). */
+/** @aparajita/capacitor-secure-storage (Keychain / Keystore). */
 export interface ItemSecureStorage {
   getItem(key: string): Promise<string | null>
   setItem(key: string, value: string): Promise<void>
   removeItem(key: string): Promise<void>
 }
 
-/** capacitor-secure-storage-plugin: get / set / remove with an options object. get and remove reject when the key is missing. */
+/** capacitor-secure-storage-plugin. get and remove reject when the key is missing. */
 export interface OptionsSecureStorage {
   get(options: { key: string }): Promise<{ value: string }>
   set(options: { key: string; value: string }): Promise<unknown>
   remove(options: { key: string }): Promise<unknown>
-  keys?(): Promise<{ value: string[] }>
 }
 
 export function capacitorKeyStore(plugin: ItemSecureStorage | OptionsSecureStorage): KeyStore {
-  if ("getItem" in plugin && typeof plugin.getItem === "function") {
-    const p = plugin as ItemSecureStorage
+  if ("getItem" in plugin) {
     return {
-      get: async (name) => (await p.getItem(name)) ?? null,
-      set: (name, value) => p.setItem(name, value),
-      delete: (name) => p.removeItem(name),
+      get: (name) => plugin.getItem(name),
+      set: (name, value) => plugin.setItem(name, value),
+      delete: (name) => plugin.removeItem(name),
     }
   }
-  const p = plugin as OptionsSecureStorage
-  const has = async (key: string): Promise<boolean | null> => {
-    if (!p.keys) return null
-    return (await p.keys()).value.includes(key)
-  }
   return {
-    async get(name) {
-      if ((await has(name)) === false) return null
-      try {
-        const { value } = await p.get({ key: name })
-        return typeof value === "string" ? value : null
-      } catch {
-        return null // the plugin rejects for a missing key
-      }
-    },
-    async set(name, value) {
-      await p.set({ key: name, value })
-    },
-    async delete(name) {
-      if ((await has(name)) === false) return
-      try {
-        await p.remove({ key: name })
-      } catch {
-        // missing key
-      }
-    },
+    get: (name) =>
+      plugin.get({ key: name }).then(
+        ({ value }) => value,
+        () => null, // missing
+      ),
+    set: async (name, value) => void (await plugin.set({ key: name, value })),
+    delete: async (name) => void (await plugin.remove({ key: name }).catch(() => {})), // missing
   }
 }

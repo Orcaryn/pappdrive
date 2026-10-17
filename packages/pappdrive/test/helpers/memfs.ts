@@ -29,8 +29,6 @@ export class MemFs implements FsAdapter {
   temps = new Map<string, Uint8Array>()
   state = new Map<string, string>()
   destroyed = false
-  /** Called before each moveTempInto, so a test can sneak in a save. */
-  beforeMove: ((path: string) => Promise<void> | void) | null = null
 
   constructor(opts: MemFsOptions = {}) {
     this.kind = opts.kind ?? "private"
@@ -47,7 +45,7 @@ export class MemFs implements FsAdapter {
   }
 
   /** Is there a folder at this path? */
-  isDir(path: string): boolean {
+  private isDir(path: string): boolean {
     if (path === "") return true
     const n = this.norm(path)
     if (this.dirs.has(n)) return true
@@ -127,7 +125,6 @@ export class MemFs implements FsAdapter {
   }
 
   async moveTempInto(temp: string, path: string): Promise<FileStat> {
-    await this.beforeMove?.(path)
     const data = this.temps.get(temp)
     if (!data) throw new Error(`memfs: no temp ${temp}`)
     const st = this.writeFile(path, data)

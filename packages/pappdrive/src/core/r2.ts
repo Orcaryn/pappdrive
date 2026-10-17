@@ -36,20 +36,15 @@ export async function getIndex(url: string, etag: string | null): Promise<IndexF
   if (res.status === 304) return { kind: "unchanged" }
   if (res.status === 404) return { kind: "missing" }
   if (!res.ok) throw new R2Error(res.status, "reading the index")
-  const tag = res.headers.get("ETag")
-  let index: IndexFile
-  try {
-    index = (await res.json()) as IndexFile
-  } catch {
-    throw new SyncError("server", "The folder's index is not valid JSON. The next sync reads it again.")
-  }
-  if (!index || typeof index !== "object" || index.v !== 1) {
+  const index = (await res.json()) as IndexFile
+  if (index.v !== 1) {
     throw new SyncError(
       "update-needed",
-      `The folder's index has format version ${String((index as { v?: unknown })?.v)}, which this version of pappdrive does not know. ` +
+      `The folder's index has format version ${String(index.v)}, which this version of pappdrive does not know. ` +
         `Sync has stopped so nothing is overwritten. Update the pappdrive package, then open the folder again.`,
     )
   }
+  const tag = res.headers.get("ETag")
   if (!tag) throw new SyncError("server", "Storage did not send the index's ETag. Check that the bucket's CORS rules expose the ETag header.")
   return { kind: "found", index, etag: tag }
 }

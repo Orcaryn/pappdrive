@@ -14,10 +14,6 @@ export function fromBase64(b64: string): Uint8Array {
   return out
 }
 
-export function toBase64Url(bytes: Uint8Array): string {
-  return toBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
-}
-
 export function toHex(bytes: Uint8Array): string {
   let s = ""
   for (const b of bytes) s += b.toString(16).padStart(2, "0")

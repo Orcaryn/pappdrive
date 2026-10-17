@@ -30,7 +30,6 @@ export class FakeServer {
   puts: string[] = [] // blob ids stored by PUT (not counting 412s)
   putAttempts = 0
   commits = 0
-  indexGets = 0
   /** A failure for the next fetch to R2 (simulates being offline). */
   offline = false
   /** Runs before a commit is checked; may change the server (another device committing first). */
@@ -105,7 +104,6 @@ export class FakeServer {
     const method = (init.method ?? "GET").toUpperCase()
     const headers = new Headers(init.headers)
     if (url.pathname === "/index" && method === "GET") {
-      this.indexGets++
       if (init.cache !== "no-store") this.sawCacheNoStore = false
       if (!this.index) return new Response("", { status: 404 })
       if (headers.get("if-none-match") === this.index.etag) return new Response(null, { status: 304 })

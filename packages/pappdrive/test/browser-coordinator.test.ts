@@ -5,7 +5,7 @@ import type { Coordinator, CoordinatorMessage } from "../src/core/types.js"
 
 /** Exclusive locks, granted in request order, like navigator.locks. */
 function fakeLocks(): LockManagerLike {
-  const queues = new Map<string, { cb: () => Promise<void>; signal?: AbortSignal; done: (v: unknown) => void; fail: (e: unknown) => void }[]>()
+  const queues = new Map<string, { cb: () => Promise<void>; done: (v: unknown) => void; fail: (e: unknown) => void }[]>()
   const held = new Set<string>()
   const pump = (name: string) => {
     if (held.has(name)) return
@@ -24,8 +24,8 @@ function fakeLocks(): LockManagerLike {
   return {
     request(name, options, cb) {
       return new Promise((done, fail) => {
-        const item = { cb: () => cb({ name }), signal: options.signal, done, fail }
-        options.signal?.addEventListener("abort", () => {
+        const item = { cb, done, fail }
+        options.signal.addEventListener("abort", () => {
           const q = queues.get(name) ?? []
           const i = q.indexOf(item)
           if (i >= 0) {
@@ -49,8 +49,8 @@ afterEach(() => {
 describe("browser coordinator", () => {
   it("one tab leads; the next one leads when it closes", async () => {
     const locks = fakeLocks()
-    const a = browserCoordinator("t1", { locks })
-    const b = browserCoordinator("t1", { locks })
+    const a = browserCoordinator("t1", locks)
+    const b = browserCoordinator("t1", locks)
     open.push(a, b)
     await a.waitForLead()
     expect(a.isLeader()).toBe(true)
@@ -68,9 +68,9 @@ describe("browser coordinator", () => {
 
   it("a follower that closes while waiting never leads, and frees its place", async () => {
     const locks = fakeLocks()
-    const a = browserCoordinator("t2", { locks })
-    const b = browserCoordinator("t2", { locks })
-    const c = browserCoordinator("t2", { locks })
+    const a = browserCoordinator("t2", locks)
+    const b = browserCoordinator("t2", locks)
+    const c = browserCoordinator("t2", locks)
     open.push(a, b, c)
     await a.waitForLead()
     b.close()
@@ -82,9 +82,9 @@ describe("browser coordinator", () => {
 
   it("messages go to the other tabs over BroadcastChannel, not back to the sender", async () => {
     const locks = fakeLocks()
-    const a = browserCoordinator("t3", { locks })
-    const b = browserCoordinator("t3", { locks })
-    const other = browserCoordinator("t3-other", { locks })
+    const a = browserCoordinator("t3", locks)
+    const b = browserCoordinator("t3", locks)
+    const other = browserCoordinator("t3-other", locks)
     open.push(a, b, other)
     const gotA: CoordinatorMessage[] = []
     const gotB: CoordinatorMessage[] = []
@@ -102,13 +102,6 @@ describe("browser coordinator", () => {
     a.post({ type: "local-change", paths: ["x"] })
     await tick()
     expect(gotB).toHaveLength(1)
-  })
-
-  it("without Web Locks, the tab leads at once", async () => {
-    const a = browserCoordinator("t4", { locks: null })
-    open.push(a)
-    await a.waitForLead()
-    expect(a.isLeader()).toBe(true)
   })
 })
 

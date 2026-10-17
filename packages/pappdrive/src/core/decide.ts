@@ -17,16 +17,15 @@ export type ActionKind =
 export interface Decision {
   key: string
   action: ActionKind
-  disk?: DiskRec
-  synced?: Rec
-  server?: Rec
+  disk: DiskRec | undefined
+  server: Rec | undefined
 }
 
-export interface DecideInput {
+interface DecideInput {
   disk: Map<string, DiskRec>
   synced: Map<string, Rec>
   server: Map<string, Rec>
-  /** Frozen paths: nothing is uploaded, downloaded or deleted, synced is left as it was. */
+  /** Frozen paths (skipped ones included): nothing is uploaded, downloaded or deleted, synced is left as it was. */
   frozen: Set<string>
   readOnly: boolean
 }
@@ -46,18 +45,10 @@ export function decide(input: DecideInput): Decision[] {
     const d = disk.get(key)
     const s = synced.get(key)
     const v = server.get(key)
-    if (d?.skipped) continue // the scan freezes these too; belt and braces
     const action = readOnly ? decideReadOnly(d, s, v) : decideOne(d, s, v)
-    if (action) out.push(withRecs({ key, action }, d, s, v))
+    if (action) out.push({ key, action, disk: d, server: v })
   }
   return out
-}
-
-function withRecs(dec: Decision, d?: DiskRec, s?: Rec, v?: Rec): Decision {
-  if (d) dec.disk = d
-  if (s) dec.synced = s
-  if (v) dec.server = v
-  return dec
 }
 
 function decideOne(d: DiskRec | undefined, s: Rec | undefined, v: Rec | undefined): ActionKind | null {
@@ -112,7 +103,7 @@ export interface CommitPath {
   local: boolean
 }
 
-export interface Clash {
+interface Clash {
   /** The file whose name is also a folder. */
   file: CommitPath
   /** Paths inside the folder of the same name. */
