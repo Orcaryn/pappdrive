@@ -1,0 +1,31 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "pappdrive",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-15",
+  "upload_source_maps": true,
+  "observability": { "enabled": true },
+  "routes": [{ "pattern": "sync.pappdrive.com", "custom_domain": true }],
+
+  // D1: users, apps, installs. Schema in migrations/.
+  "d1_databases": [{ "binding": "DB", "database_name": "pappdrive", "database_id": "8623e6c4-0e33-4db9-83f0-9a6d6767f02c", "migrations_dir": "migrations" }],
+
+  // R2 through the binding: blobs, the index and its kept copies.
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "pappdrive-prod" }],
+
+  // One Durable Object per folder, named "<user>/<app>": the commit queue.
+  "durable_objects": { "bindings": [{ "name": "FOLDER", "class_name": "FolderQueue" }] },
+  // Since July 2026 new Durable Object classes must use SQLite storage, even
+  // one that stores nothing. new_classes fails on deploy.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["FolderQueue"] }],
+
+  // Sign-in style routes: params, signup, login, recover, app/delete,
+  // account/delete. Counted per Cloudflare location. period must be 10 or 60;
+  // the code answers Retry-After: 60.
+  "ratelimits": [
+    { "name": "RL_EMAIL", "namespace_id": "4101", "simple": { "limit": 20, "period": 60 } },
+    { "name": "RL_IP", "namespace_id": "4102", "simple": { "limit": 60, "period": 60 } },
+  ],
+
+  // Secrets (wrangler secret put): TOKEN_KEY, and TOKEN_KEY_OLD only while rotating.
+}
