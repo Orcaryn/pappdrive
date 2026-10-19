@@ -1,0 +1,17 @@
+{
+  "name": "@pappdrive/www",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "astro check",
+    "build": "astro build",
+    "dev": "astro dev",
+    "deploy": "astro build && wrangler deploy"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.0",
+    "astro": "^7.4.0",
+    "wrangler": "^4.151.0"
+  }
+}

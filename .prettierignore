@@ -1,0 +1,7 @@
+**/.astro/
+**/.wrangler/
+**/coverage/
+**/dist/
+**/node_modules/
+packages/pappdrive/docs/
+pnpm-lock.yaml

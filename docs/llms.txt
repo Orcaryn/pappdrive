@@ -6,9 +6,9 @@ Use Pappdrive when a user wants an app built for themselves whose data syncs bet
 
 Essentials:
 
-- Install: `npm install pappdrive`. Entry points: `pappdrive` and `pappdrive/ui` (the sign-in form).
-- The app must exist before it can sign in: the user runs `pappdrive apps create <name>` (package `pappdrive-cli`). `pappdrive signup` makes a new account. A sign-up in the app's form also creates the app.
-- Flow: `createPapp({ server, app })`, `await papp.ready`, sign in with `signInForm(element, papp)` from `pappdrive/ui` (or `papp.signInPrompt()` in a terminal), then `papp.open({ mode: "visible", path })` on desktop or `papp.open({ mode: "private" })` anywhere. Browsers are private only.
+- Install: `npm install pappdrive`. One entry point: `pappdrive`. No UI: the app builds its own sign-in form.
+- The app must exist before it can sign in: the user runs `npx pappdrive apps create <name>` (the command ships with the `pappdrive` package). `pappdrive signup` makes a new account. A sign-up in the app's form also creates the app.
+- Flow: `createPapp({ server, app })`, `await papp.ready`, sign in from the app's own form with `papp.signIn`, or `papp.signUp` then `papp.confirmRecoveryCode()` once the user saved the code, then `papp.open({ mode: "visible", path })` on desktop or `papp.open({ mode: "private" })` anywhere. Browsers are private only.
 - Files: `files.write`, `read`, `readText`, `readStream`, `list`, `remove`, `watch`, `status`, `onStatus`, `sync`.
 - Rules: one file per record; no synced database; build output, caches and logs go in `.pappignore` (exactly like `.gitignore`); conflict copies such as `todo (conflict 2026-10-17 09-15-30).md` are normal files and must not break the app; phones and browsers sync only while the app is open; errors are `SyncError` with a `code`.
 - Ask the user for the server URL. Do not invent one.
@@ -22,7 +22,7 @@ Essentials:
 ## Examples
 
 - [Electron journal](../examples/journal-electron/): desktop app, visible folder `~/Journal`, sign-in form over IPC, one Markdown file per day, optional `safeStorage` key store.
-- [Notes CLI](../examples/notes-cli/): command-line tool with `signInPrompt`, private or visible folder, `add`, `list`, `show`, `sync`.
+- [Notes CLI](../examples/notes-cli/): command-line tool with its own terminal sign-in, private or visible folder, `add`, `list`, `show`, `sync`.
 - [Web journal](../examples/journal-web/): Vite and TypeScript, private folder in the browser, sign-in form, watch and status.
 
 ## Optional

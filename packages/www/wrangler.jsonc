@@ -1,0 +1,10 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "pappdrive-www",
+  "compatibility_date": "2026-10-15",
+  "assets": { "directory": "./dist" },
+  "routes": [
+    { "pattern": "pappdrive.com", "custom_domain": true },
+    { "pattern": "www.pappdrive.com", "custom_domain": true },
+  ],
+}

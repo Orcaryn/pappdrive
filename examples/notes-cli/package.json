@@ -4,7 +4,9 @@
   "private": true,
   "description": "A command-line notebook that syncs between your computers.",
   "type": "module",
-  "bin": { "notes": "./notes.js" },
+  "bin": {
+    "notes": "./notes.js"
+  },
   "scripts": {
     "notes": "node notes.js"
   },
