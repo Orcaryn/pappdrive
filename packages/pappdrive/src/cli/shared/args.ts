@@ -21,7 +21,7 @@ const OPTIONS = {
   help: { type: 'boolean', short: 'h' },
   version: { type: 'boolean', short: 'v' },
 } as const;
-const EXAMPLE: Record<string, string> = { server: 'https://sync.example.com', email: 'me@example.com', app: 'my-notes' };
+const EXAMPLE: Record<string, string> = { server: 'https://sync.pappdrive.com', email: 'me@example.com', app: 'my-notes' };
 const COMMANDS: Record<Command, { args: string[]; flags: string[] }> = {
   signup: { args: [], flags: ['server', 'email', 'app'] },
   login: { args: [], flags: ['server', 'email'] },

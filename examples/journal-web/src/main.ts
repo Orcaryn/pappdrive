@@ -6,7 +6,7 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 const editor = $<HTMLTextAreaElement>('editor');
 
 if (!server) {
-  throw new Error('Set VITE_PAPPDRIVE_SERVER in .env, e.g. https://sync.example.com');
+  throw new Error('Set VITE_PAPPDRIVE_SERVER in .env, e.g. https://sync.pappdrive.com');
 }
 
 const papp = createPapp({ server, app: 'journal' });

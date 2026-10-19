@@ -3,5 +3,6 @@
 **/coverage/
 **/dist/
 **/node_modules/
+docs/spec/
 packages/pappdrive/docs/
 pnpm-lock.yaml

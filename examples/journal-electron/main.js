@@ -85,7 +85,7 @@ handle('journal:status', () => journal().status);
 
 async function main() {
   await app.whenReady();
-  if (!SERVER) throw new Error('Set PAPPDRIVE_SERVER to your Pappdrive server, e.g. https://sync.example.com');
+  if (!SERVER) throw new Error('Set PAPPDRIVE_SERVER to your Pappdrive server, e.g. https://sync.pappdrive.com');
 
   papp = createPapp({ server: SERVER, app: APP, keyStore: canUseSafeStorage() ? safeStorageKeyStore() : undefined });
   await papp.ready;

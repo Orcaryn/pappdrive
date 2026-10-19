@@ -5,7 +5,7 @@ Pappdrive gives a personal app one folder of plain files that stays the same on 
 ```ts
 import { createPapp } from "pappdrive"
 
-const papp = createPapp({ server: "https://sync.example.com", app: "journal" })
+const papp = createPapp({ server: "https://sync.pappdrive.com", app: "journal" })
 await papp.ready
 if (!papp.signedIn) await papp.signIn(email, password) // from the app's own form
 const files = await papp.open({ mode: "private" })
@@ -19,7 +19,7 @@ files.watch(change => console.log(change.origin, change.path))
 - [docs/llms.txt](docs/llms.txt): entry point for coding agents.
 - [docs/skill/SKILL.md](docs/skill/SKILL.md): a Claude Code skill. [docs/AGENTS-block.md](docs/AGENTS-block.md): a block for `AGENTS.md` or `CLAUDE.md`.
 - [packages/server/README.md](packages/server/README.md): operator setup (Cloudflare Worker, R2, D1).
-- Design spec: `~/git/Writings/Pappdrive/` (overview, storage, index, server, client, sync, encryption, cleanup, limits, implementation).
+- [docs/spec/](docs/spec/README.md): the design (storage, index, server, client, sync, encryption, cleanup, limits, implementation).
 
 ## Layout
 
@@ -37,7 +37,7 @@ The examples are not part of the pnpm workspace. Each has its own `package.json`
 
 ## Status
 
-Built, not yet deployed. No public server exists yet, and the packages are not yet published to npm. Before anyone else's data is stored, a per-user quota and an upload rate limit must exist (see the spec, Limits).
+The hosted server runs at `https://sync.pappdrive.com`; the site is [pappdrive.com](https://pappdrive.com). The `pappdrive` package is not yet on npm. Before sign-up opens to others: a per-user quota, an upload rate limit (see the spec, Limits) and billing.
 
 ## Development
 

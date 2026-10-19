@@ -34,14 +34,14 @@ npm install pappdrive
 
 - One package, one entry point: `"pappdrive"`.
 - The right adapter is picked by the package's `exports` conditions. Node, command-line tools and Electron's main process get the node adapter. Browsers, Capacitor apps and Electron windows get the browser adapter. Use a bundler (Vite, esbuild) for browser code.
-- The app needs the server URL of the operator, for example `https://sync.example.com` (no `/v1`). If you do not know it, ask the user. Do not invent one. A good place for it is an environment variable: `PAPPDRIVE_SERVER`, or `VITE_PAPPDRIVE_SERVER` in a Vite app.
+- The server is `https://sync.pappdrive.com` (no `/v1`), the hosted Pappdrive service. A user who runs their own server gives its URL instead. Keep it in an environment variable: `PAPPDRIVE_SERVER`, or `VITE_PAPPDRIVE_SERVER` in a Vite app.
 
 ## 2. Create the app first
 
 An app must exist on the server before it can sign in. Its name is unique per user and names one folder.
 
 ```sh
-export PAPPDRIVE_SERVER=https://sync.example.com   # or pass --server <url> to each command
+export PAPPDRIVE_SERVER=https://sync.pappdrive.com   # or pass --server <url> to each command
 
 npx pappdrive signup                   # new user: makes the account, shows the recovery code
 npx pappdrive login                    # existing user
@@ -74,7 +74,7 @@ All CLI commands:
 import { createPapp } from "pappdrive"
 
 const papp = createPapp({
-  server: "https://sync.example.com", // the operator's server, without /v1
+  server: "https://sync.pappdrive.com", // without /v1
   app: "journal",                     // the app name from step 2
   read: ["my-notes"],                 // optional: other apps' folders this app may read
   // keyStore: { get, set, delete },  // optional: replace where the data key is kept

@@ -6,7 +6,7 @@ A journal in the browser that syncs with your other devices. Each day is one Mar
 
 ```sh
 npm install
-export PAPPDRIVE_SERVER=https://sync.example.com   # your Pappdrive server
+export PAPPDRIVE_SERVER=https://sync.pappdrive.com   # your Pappdrive server
 npx pappdrive signup        # first time only; or: npx pappdrive login
 npx pappdrive apps create journal
 

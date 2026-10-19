@@ -73,15 +73,15 @@ function resolveServer(flag: string | undefined, env: string | undefined, saved:
   const raw = flag || env || saved;
 
   if (!raw) {
-    throw new CliError('Which server? Pass --server https://sync.example.com, or set PAPPDRIVE_SERVER. After the first signup or login it is remembered.', 2);
+    throw new CliError('Which server? Pass --server https://sync.pappdrive.com, or set PAPPDRIVE_SERVER. After the first signup or login it is remembered.', 2);
   } else if (!URL.canParse(raw.trim())) {
-    throw new CliError(`"${raw}" is not a server address. Give the full address, like --server https://sync.example.com.`, 2);
+    throw new CliError(`"${raw}" is not a server address. Give the full address, like --server https://sync.pappdrive.com.`, 2);
   }
 
   const url = new URL(raw.trim());
 
   if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-    throw new CliError(`"${raw}" is not an http or https address. Use --server https://sync.example.com.`, 2);
+    throw new CliError(`"${raw}" is not an http or https address. Use --server https://sync.pappdrive.com.`, 2);
   }
 
   url.search = '';
