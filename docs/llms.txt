@@ -11,7 +11,7 @@ Essentials:
 - Flow: `createPapp({ server, app })`, `await papp.ready`, sign in from the app's own form with `papp.signIn`, or `papp.signUp` then `papp.confirmRecoveryCode()` once the user saved the code, then `papp.open({ mode: "visible", path })` on desktop or `papp.open({ mode: "private" })` anywhere. Browsers are private only.
 - Files: `files.write`, `read`, `readText`, `readStream`, `list`, `remove`, `watch`, `status`, `onStatus`, `sync`.
 - Rules: one file per record; no synced database; build output, caches and logs go in `.pappignore` (exactly like `.gitignore`); conflict copies such as `todo (conflict 2026-10-17 09-15-30).md` are normal files and must not break the app; phones and browsers sync only while the app is open; errors are `SyncError` with a `code`.
-- Ask the user for the server URL. Do not invent one.
+- Server: `https://sync.pappdrive.com`, the hosted service, unless the user runs their own.
 
 ## Docs
 

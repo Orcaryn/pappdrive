@@ -1,13 +1,13 @@
 # AGENTS.md block
 
-Copy the block below into the project's `AGENTS.md` or `CLAUDE.md`. Replace `<name>` and `<url>`.
+Copy the block below into the project's `AGENTS.md` or `CLAUDE.md`. Replace `<name>`.
 
 ```markdown
 ## Data sync: pappdrive
 
-This app stores its data with `pappdrive`: one folder of plain files, synced between the user's devices, end-to-end encrypted. Full API and rules: https://github.com/<owner>/pappdrive/blob/main/docs/api.md (read it before changing data code).
+This app stores its data with `pappdrive`: one folder of plain files, synced between the user's devices, end-to-end encrypted. Full API and rules: https://github.com/HaMMeRSI/PaPPDrive/blob/main/docs/api.md (read it before changing data code).
 
-- App name: `<name>`. Server: `<url>` (from `PAPPDRIVE_SERVER`). The app was created with `pappdrive apps create <name>`.
+- App name: `<name>`. Server: `https://sync.pappdrive.com` (from `PAPPDRIVE_SERVER`). The app was created with `pappdrive apps create <name>`.
 - Start: `createPapp({ server, app })`, `await papp.ready`, sign in from the app's own form with `papp.signIn` or `papp.signUp` + `papp.confirmRecoveryCode()`, then `papp.open(...)`.
 - One file per record. Never sync a database or one big data file.
 - Conflict copies like `todo (conflict 2026-10-17 09-15-30).md` are normal files. Code that lists or parses files must not break on them.
