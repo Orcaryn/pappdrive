@@ -8,7 +8,7 @@ import requireElseIf from './eslint-rules/require-else-if.js';
 
 const typescriptFiles = ['packages/**/*.ts', 'examples/**/*.ts'];
 const projectFiles = ['packages/*/src/**/*.ts', 'packages/*/test/**/*.ts', 'examples/*/src/**/*.ts'];
-const domainFiles = ['packages/protocol/src/**/*.ts', 'packages/pappdrive/src/{papp,shared}/**/*.ts'];
+const domainFiles = ['packages/protocol/src/**/*.ts', 'packages/pappdrive/src/{papp,shared}/**/*.ts', 'packages/server/src/**/*.ts'];
 const proseFiles = ['**/*.{ts,js,mjs,cjs}'];
 const constFunctionDeclaration = {
   selector: "VariableDeclaration[kind='const']:has(VariableDeclarator[init.type=/^(ArrowFunctionExpression|FunctionExpression)$/][init.body.type='BlockStatement'])",
@@ -92,6 +92,11 @@ export default defineConfig([
   },
   { name: 'workspace/domain-data', files: domainFiles, rules: { 'no-restricted-syntax': ['error', ...workspaceRestrictedSyntax, noAbsenceSubstitute] } },
   {
+    name: 'server/boundary-parser',
+    files: ['packages/server/src/shared/validate.ts'],
+    rules: { 'no-restricted-syntax': ['error', ...workspaceRestrictedSyntax.filter(rule => !rule.selector.includes("'typeof'")), noAbsenceSubstitute] },
+  },
+  {
     name: 'workspace/type-aware-typescript',
     files: projectFiles,
     languageOptions: { parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname } },
@@ -108,7 +113,14 @@ export default defineConfig([
       '@typescript-eslint/switch-exhaustiveness-check': 'error',
     },
   },
-  { name: 'protocol/shared', files: ['packages/protocol/src/**/*.ts'], rules: packageImport(['pappdrive'], 'The protocol cannot import other packages.') },
+  { name: 'protocol/shared', files: ['packages/protocol/src/**/*.ts'], rules: packageImport(['pappdrive', '@pappdrive/server'], 'The protocol cannot import other packages.') },
+  {
+    name: 'server/worker',
+    files: ['packages/server/src/**/*.ts'],
+    languageOptions: { globals: globals.serviceworker },
+    rules: packageImport(['pappdrive'], 'The server cannot import client code.'),
+  },
+  { name: 'pappdrive/library', files: ['packages/pappdrive/src/**/*.ts'], rules: packageImport(['@pappdrive/server'], 'The library cannot import the server.') },
   { name: 'pappdrive/node', files: ['packages/pappdrive/src/{node,cli}/**/*.ts', 'packages/*/test/**/*.ts', 'packages/*/*.config.ts'], languageOptions: { globals: globals.node } },
   {
     name: 'pappdrive/browser',
