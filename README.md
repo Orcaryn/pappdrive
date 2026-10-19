@@ -18,16 +18,14 @@ files.watch(change => console.log(change.origin, change.path))
 - [docs/api.md](docs/api.md): the whole API and every rule an app must follow, on one page. Start here.
 - [docs/llms.txt](docs/llms.txt): entry point for coding agents.
 - [docs/skill/SKILL.md](docs/skill/SKILL.md): a Claude Code skill. [docs/AGENTS-block.md](docs/AGENTS-block.md): a block for `AGENTS.md` or `CLAUDE.md`.
-- [packages/server/README.md](packages/server/README.md): operator setup (Cloudflare Worker, R2, D1).
-- [docs/spec/](docs/spec/README.md): the design (storage, index, server, client, sync, encryption, cleanup, limits, implementation).
 
 ## Layout
 
 | Path                        | npm name    | What                                                                                                                                                                                                                                                      |
 | --------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `packages/pappdrive`        | `pappdrive` | The library, and the `pappdrive` command: `signup`, `login`, `logout`, `apps list`, `apps create <name>`, `export <app> <dir>`, `delete-app <name>`, `delete-account`. Entry point `pappdrive`: node and browser adapters, picked by `exports` conditions |
-| `packages/server`           | private     | The Cloudflare Worker: sign-in, blobs, index commits, cleanup                                                                                                                                                                                             |
-| `packages/protocol`         | private     | Types and constants shared by the library and the server                                                                                                                                                                                                  |
+| `packages/protocol`         | private     | Types and constants shared by the library and the server. The server is a separate, private repository                                                                                                                                                    |
+| `packages/www`              | private     | The site at pappdrive.com (Astro, Worker static assets)                                                                                                                                                                                                   |
 | `examples/journal-electron` |             | Electron journal, visible folder `~/Journal`                                                                                                                                                                                                              |
 | `examples/notes-cli`        |             | Command-line notes                                                                                                                                                                                                                                        |
 | `examples/journal-web`      |             | Web journal (Vite), private folder                                                                                                                                                                                                                        |
