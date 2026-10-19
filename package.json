@@ -6,12 +6,35 @@
   "scripts": {
     "typecheck": "pnpm --recursive typecheck",
     "test": "pnpm --recursive test",
-    "build": "pnpm --recursive build"
+    "build": "pnpm --recursive build",
+    "lint": "eslint .dependency-cruiser.js eslint.config.js eslint-rules scripts packages examples",
+    "lint:fix": "eslint .dependency-cruiser.js eslint.config.js eslint-rules scripts packages examples --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "knip": "knip",
+    "architecture:pappdrive": "node scripts/check-architecture.mjs packages/pappdrive",
+    "architecture:protocol": "node scripts/check-architecture.mjs packages/protocol",
+    "architecture:server": "node scripts/check-architecture.mjs packages/server",
+    "verify": "node scripts/run-checks.mjs typecheck test architecture:pappdrive architecture:protocol architecture:server",
+    "polish": "node scripts/run-checks.mjs format:check lint knip",
+    "quality": "node scripts/run-checks.mjs verify polish"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@stylistic/eslint-plugin": "^5.10.0",
     "@types/node": "^24.0.0",
+    "dependency-cruiser": "^18.6.0",
+    "eslint": "^10.13.0",
+    "globals": "^17.13.0",
+    "knip": "^6.41.0",
+    "prettier": "^3.9.10",
     "tsup": "^8.5.1",
     "typescript": "~5.9.0",
+    "typescript-eslint": "^8.71.2",
     "vitest": "^4.0.0"
+  },
+  "engines": {
+    "node": "^22.22.0 || ^24.0.0 || >=26.0.0",
+    "pnpm": "^11.1.0"
   }
 }

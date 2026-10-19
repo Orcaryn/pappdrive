@@ -5,12 +5,11 @@ A notebook in the terminal that syncs between your computers. Each note is one M
 ## Run
 
 ```sh
-npm install -g pappdrive-cli
-export PAPPDRIVE_SERVER=https://sync.example.com   # your Pappdrive server
-pappdrive signup            # first time only; or: pappdrive login
-pappdrive apps create notes
-
 npm install
+export PAPPDRIVE_SERVER=https://sync.example.com   # your Pappdrive server
+npx pappdrive signup        # first time only; or: npx pappdrive login
+npx pappdrive apps create notes
+
 npm link                    # puts "notes" on your PATH; or run: node notes.js ...
 
 notes add buy milk and bread
@@ -19,7 +18,7 @@ notes show 2026-10-17-0915
 notes sync
 ```
 
-The first command asks for your email and password in the terminal (`papp.signInPrompt()`). After that, the computer remembers the sign-in.
+The first command asks for the email and password from `pappdrive signup` and calls `papp.signIn`. After that, the computer remembers the sign-in.
 
 ## Private or visible
 
@@ -28,7 +27,7 @@ The first command asks for your email and password in the terminal (`papp.signIn
 
 ## Points to copy
 
-- `if (!papp.signedIn) await papp.signInPrompt()` before `open`.
+- `if (!papp.signedIn) await signIn(papp)` before `open`. The app asks for the email and password itself; the password is not echoed. New accounts come from `pappdrive signup`, which shows the recovery code.
 - A command-line tool is short-lived, so it calls `await files.sync()` itself: before reading (to get other devices' notes) and after writing (to send its own). It ends with `await papp.close()`, which syncs what is pending and stops polling.
 - Offline is not an error: `network` and `server` codes are reported and the note stays on this computer until the next run.
 - `no-app` gets the command that fixes it.

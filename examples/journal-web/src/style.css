@@ -1,96 +1,141 @@
+/* Global: design tokens and document defaults only. Each screen styles itself under its own root class. */
 :root {
+  --ink: #222;
+  --muted: #666;
+  --paper: #faf9f6;
+  --line: #ddd;
+  --current: #e8e4da;
+  --conflict: #8a5a00;
+  --notice-bg: #fff4d6;
+  --notice-line: #e6c97a;
+  --error: #b3261e;
   font-family: system-ui, sans-serif;
-  color: #222;
-  background: #faf9f6;
-}
-body {
-  margin: 0;
-  height: 100vh;
-}
-#sign-in-screen {
-  max-width: 420px;
-  margin: 10vh auto;
-}
-.small {
-  font-size: 0.85em;
-  color: #666;
-}
-#journal-screen:not([hidden]) {
-  display: grid;
-  grid-template-columns: 240px 1fr;
-  height: 100vh;
-}
-aside {
-  display: flex;
-  flex-direction: column;
-  border-right: 1px solid #ddd;
-  padding: 12px;
-  gap: 8px;
-  min-height: 0;
-}
-#entries {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  overflow-y: auto;
-  flex: 1;
-}
-#entries li {
-  padding: 6px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-#entries li.current {
-  background: #e8e4da;
-}
-#entries li.conflict {
-  font-style: italic;
-  color: #8a5a00;
-}
-aside footer {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-  font-size: 0.8em;
-  color: #666;
-}
-#status {
-  flex-basis: 100%;
-}
-main {
-  display: flex;
-  flex-direction: column;
-  padding: 16px 24px;
-  min-height: 0;
-}
-main header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-#notice:not([hidden]) {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  background: #fff4d6;
-  border: 1px solid #e6c97a;
-  padding: 8px 12px;
-  border-radius: 4px;
-  margin-bottom: 8px;
-}
-#notice-text {
-  flex: 1;
-}
-#editor {
-  flex: 1;
-  font: 16px/1.6 Georgia, serif;
-  border: none;
-  background: transparent;
-  resize: none;
-  outline: none;
+  color: var(--ink);
+  background: var(--paper);
 }
 
-aside footer .small {
-  flex-basis: 100%;
+body {
+  margin: 0;
+  height: 100dvh;
+}
+
+.sign-in-screen {
+  max-width: min(100% - 2rem, 26rem);
+  margin: 10dvh auto;
+
+  .note {
+    font-size: 0.85em;
+    color: var(--muted);
+  }
+
+  .sign-in {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  .actions {
+    display: flex;
+    gap: 0.6rem;
+  }
+
+  .error {
+    color: var(--error);
+  }
+}
+
+.journal-screen {
+  height: 100dvh;
+
+  &:not([hidden]) {
+    display: grid;
+    grid-template-columns: clamp(11rem, 25vw, 15rem) 1fr;
+  }
+
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-height: 0;
+    padding: 0.75rem;
+    border-right: 1px solid var(--line);
+  }
+
+  .entries {
+    flex: 1;
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    list-style: none;
+
+    li {
+      padding: 0.4rem 0.5rem;
+      border-radius: 0.25rem;
+      cursor: pointer;
+
+      &.current {
+        background: var(--current);
+      }
+
+      &.conflict {
+        font-style: italic;
+        color: var(--conflict);
+      }
+    }
+  }
+
+  .footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    align-items: center;
+    font-size: 0.8em;
+    color: var(--muted);
+
+    .status,
+    .note {
+      flex-basis: 100%;
+    }
+  }
+
+  .page {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: clamp(0.75rem, 2vw, 1rem) clamp(1rem, 3vw, 1.5rem);
+  }
+
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .notice {
+    &:not([hidden]) {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 0.5rem;
+      padding: 0.5rem 0.75rem;
+      background: var(--notice-bg);
+      border: 1px solid var(--notice-line);
+      border-radius: 0.25rem;
+    }
+
+    .text {
+      flex: 1;
+    }
+  }
+
+  .editor {
+    flex: 1;
+    font:
+      16px/1.6 Georgia,
+      serif;
+    background: transparent;
+    border: none;
+    outline: none;
+    resize: none;
+  }
 }

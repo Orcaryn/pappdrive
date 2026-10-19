@@ -5,19 +5,18 @@ A journal in the browser that syncs with your other devices. Each day is one Mar
 ## Run
 
 ```sh
-npm install -g pappdrive-cli
+npm install
 export PAPPDRIVE_SERVER=https://sync.example.com   # your Pappdrive server
-pappdrive signup            # first time only; or: pappdrive login
-pappdrive apps create journal
+npx pappdrive signup        # first time only; or: npx pappdrive login
+npx pappdrive apps create journal
 
 cp .env.example .env        # set VITE_PAPPDRIVE_SERVER
-npm install
 npm run dev
 ```
 
 ## Points to copy
 
-- `createPapp`, `await papp.ready`, then `signInForm(element, papp)` from `pappdrive/ui` if `!papp.signedIn`. The form shows the recovery code at sign-up and does not let the user skip it.
+- `createPapp`, `await papp.ready`, then the sign-in form if `!papp.signedIn`. At sign-up it shows the recovery code and calls `papp.confirmRecoveryCode()` only after the user types back its last group.
 - `papp.open({ mode: "private" })`. A browser has no visible mode. The files live in the origin private file system, which the user cannot browse. To get them out as normal files: `pappdrive export journal ~/journal-export`.
 - `files.watch` re-reads the list on every change. Conflict copies are listed like any day.
 - `files.onStatus` shows "Syncing…", "Synced 09:15", changes waiting, or the last error. `status.deleted` sends the user back to the sign-in form.

@@ -6,35 +6,50 @@
     <title>Journal</title>
   </head>
   <body>
-    <section id="sign-in-screen" hidden>
+    <section id="sign-in-screen" class="sign-in-screen" hidden>
       <h1>Journal</h1>
       <p>Sign in to sync your journal between your devices.</p>
-      <p class="small">We cannot recover your password. Your other devices or your recovery code can.</p>
-      <div id="sign-in"></div>
+      <p class="note">We cannot recover your password. Your other devices or your recovery code can.</p>
+      <form id="sign-in" class="sign-in">
+        <input id="email" type="email" placeholder="Email" autocomplete="username" required />
+        <input id="password" type="password" placeholder="Password, 12 characters or more" autocomplete="current-password" required />
+        <input id="code" placeholder="Recovery code, only if you forgot the password" autocomplete="off" />
+        <div class="actions">
+          <button type="submit">Sign in</button>
+          <button type="button" id="sign-up">Create account</button>
+        </div>
+        <p id="sign-in-error" class="error"></p>
+      </form>
+      <div id="recovery" class="sign-in" hidden>
+        <p>Your recovery code. Save it now: it is shown only here.</p>
+        <pre id="recovery-code"></pre>
+        <input id="recovery-check" placeholder="Type its last group" autocomplete="off" />
+        <button id="recovery-done">I saved it</button>
+      </div>
     </section>
 
-    <section id="journal-screen" hidden>
-      <aside>
+    <section id="journal-screen" class="journal-screen" hidden>
+      <aside class="sidebar">
         <button id="today">Today</button>
-        <ul id="entries"></ul>
-        <footer>
-          <span id="status"></span>
-          <span class="small">Syncs while this page is open. With several tabs, one tab syncs for all.</span>
+        <ul id="entries" class="entries"></ul>
+        <footer class="footer">
+          <span id="status" class="status"></span>
+          <span class="note">Syncs while this page is open. With several tabs, one tab syncs for all.</span>
           <button id="sync" title="Sync now">Sync</button>
           <button id="signout">Sign out</button>
         </footer>
       </aside>
-      <main>
-        <header>
+      <main class="page">
+        <header class="header">
           <h2 id="title"></h2>
           <button id="delete">Delete</button>
         </header>
-        <div id="notice" hidden>
-          <span id="notice-text"></span>
+        <div id="notice" class="notice" hidden>
+          <span id="notice-text" class="text"></span>
           <button id="notice-action" hidden></button>
           <button id="notice-close">×</button>
         </div>
-        <textarea id="editor" placeholder="Write about your day. It saves by itself."></textarea>
+        <textarea id="editor" class="editor" placeholder="Write about your day. It saves by itself."></textarea>
       </main>
     </section>
 

@@ -4,11 +4,10 @@ Pappdrive gives a personal app one folder of plain files that stays the same on 
 
 ```ts
 import { createPapp } from "pappdrive"
-import { signInForm } from "pappdrive/ui"
 
 const papp = createPapp({ server: "https://sync.example.com", app: "journal" })
 await papp.ready
-if (!papp.signedIn) await signInForm(document.querySelector("#sign-in")!, papp)
+if (!papp.signedIn) await papp.signIn(email, password) // from the app's own form
 const files = await papp.open({ mode: "private" })
 await files.write("2026-10-17.md", "# Friday\n")
 files.watch(change => console.log(change.origin, change.path))
@@ -24,16 +23,15 @@ files.watch(change => console.log(change.origin, change.path))
 
 ## Layout
 
-| Path | npm name | What |
-|---|---|---|
-| `packages/pappdrive` | `pappdrive` | The library. Entry points `pappdrive` (node and browser adapters, picked by `exports` conditions) and `pappdrive/ui` (the sign-in form) |
-| `packages/cli` | `pappdrive-cli` | Command-line tool `pappdrive`: `signup`, `login`, `logout`, `apps list`, `apps create <name>`, `export <app> <dir>`, `delete-app <name>`, `delete-account`. Server from `--server` or `PAPPDRIVE_SERVER` |
-| `packages/server` | private | The Cloudflare Worker: sign-in, signed links, index commits, cleanup |
-| `packages/protocol` | private | Types and constants shared by the library and the server |
-| `examples/journal-electron` | | Electron journal, visible folder `~/Journal` |
-| `examples/notes-cli` | | Command-line notes |
-| `examples/journal-web` | | Web journal (Vite), private folder |
-| `docs` | | Docs for builders and their agents |
+| Path                        | npm name    | What                                                                                                                                                                                                                                                      |
+| --------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/pappdrive`        | `pappdrive` | The library, and the `pappdrive` command: `signup`, `login`, `logout`, `apps list`, `apps create <name>`, `export <app> <dir>`, `delete-app <name>`, `delete-account`. Entry point `pappdrive`: node and browser adapters, picked by `exports` conditions |
+| `packages/server`           | private     | The Cloudflare Worker: sign-in, blobs, index commits, cleanup                                                                                                                                                                                             |
+| `packages/protocol`         | private     | Types and constants shared by the library and the server                                                                                                                                                                                                  |
+| `examples/journal-electron` |             | Electron journal, visible folder `~/Journal`                                                                                                                                                                                                              |
+| `examples/notes-cli`        |             | Command-line notes                                                                                                                                                                                                                                        |
+| `examples/journal-web`      |             | Web journal (Vite), private folder                                                                                                                                                                                                                        |
+| `docs`                      |             | Docs for builders and their agents                                                                                                                                                                                                                        |
 
 The examples are not part of the pnpm workspace. Each has its own `package.json` that depends on `pappdrive` from npm.
 

@@ -5,12 +5,11 @@ A journal that syncs between your computers. Each day is one Markdown file in `~
 ## Run
 
 ```sh
-npm install -g pappdrive-cli
-export PAPPDRIVE_SERVER=https://sync.example.com   # your Pappdrive server
-pappdrive signup            # first time only; or: pappdrive login
-pappdrive apps create journal
-
 npm install
+export PAPPDRIVE_SERVER=https://sync.example.com   # your Pappdrive server
+npx pappdrive signup        # first time only; or: npx pappdrive login
+npx pappdrive apps create journal
+
 npm start
 ```
 
@@ -18,16 +17,16 @@ On the second computer: the same `npm install` and `npm start`, then sign in wit
 
 ## How it is built
 
-| File | Role |
-|---|---|
-| `main.js` | Main process. `createPapp`, `papp.open({ mode: "visible", path: ~/Journal })`, `files.watch` and `files.onStatus` forwarded to the window, one IPC handler per action |
-| `preload.cjs` | `contextBridge`: exposes `window.journal` (the account functions and the journal actions) |
-| `renderer.js` | The window. `signInForm(element, { signUp, signIn, recover })` from `pappdrive/ui`, the list of days, the editor. Bundled with esbuild |
-| `keystore.js` | Optional `keyStore` on Electron `safeStorage` |
+| File          | Role                                                                                                                                                                  |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `main.js`     | Main process. `createPapp`, `papp.open({ mode: "visible", path: ~/Journal })`, `files.watch` and `files.onStatus` forwarded to the window, one IPC handler per action |
+| `preload.cjs` | `contextBridge`: exposes `window.journal` (the account functions and the journal actions)                                                                             |
+| `renderer.js` | The window. The sign-in form over the account functions, the list of days, the editor. Bundled with esbuild                                                           |
+| `keystore.js` | Optional `keyStore` on Electron `safeStorage`                                                                                                                         |
 
 Points to copy:
 
-- `papp` runs only in the main process (node adapter: visible folder, watcher, keychain). The window imports only `pappdrive/ui`.
+- `papp` runs only in the main process (node adapter: visible folder, watcher, keychain). The window does not import `pappdrive`.
 - Errors cross IPC as `{ ok: false, error: { code, message, retryAfter, reason } }` and are thrown again in the window with the same `code`. Electron would otherwise keep only the message, and the form could not tell "wrong password" from "too many tries".
 - One file per day. The list shows every `.md` file, including conflict copies such as `2026-10-17 (conflict 2026-10-17 09-15-30).md`. The date label falls back to the raw name when a name is not a date.
 - On every watch change, the list is read again. If the open day changed and the user has not typed, the editor reloads. If they have typed, a notice offers the other version.
