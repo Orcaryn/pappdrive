@@ -1,7 +1,21 @@
 {
   "name": "pappdrive",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "A synced, end-to-end encrypted folder for personal apps.",
+  "homepage": "https://pappdrive.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Orcaryn/pappdrive.git"
+  },
+  "keywords": [
+    "sync",
+    "end-to-end-encryption",
+    "local-first",
+    "offline-first",
+    "files",
+    "personal-apps"
+  ],
   "type": "module",
   "bin": {
     "pappdrive": "./dist/cli.js"

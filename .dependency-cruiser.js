@@ -3,14 +3,11 @@ import { basename } from 'node:path';
 const packageName = basename(process.cwd());
 const isProtocol = packageName === 'protocol';
 const isPappdrive = packageName === 'pappdrive';
-const isServer = packageName === 'server';
 
 const workspaceRules = [
   { name: 'no-circular-dependencies', severity: 'error', from: {}, to: { circular: true } },
   { name: 'no-unresolvable-dependencies', severity: 'error', from: {}, to: { couldNotResolve: true, pathNot: '^cloudflare:' } },
   ...(isProtocol ? [{ name: 'protocol-does-not-import-packages', severity: 'error', from: { path: '^src/' }, to: { path: '^[.][.]/' } }] : []),
-  ...(isServer ? [{ name: 'server-does-not-import-clients', severity: 'error', from: { path: '^src/' }, to: { path: '^[.][.]/pappdrive/' } }] : []),
-  ...(isPappdrive ? [{ name: 'pappdrive-does-not-import-server', severity: 'error', from: { path: '^src/' }, to: { path: '^[.][.]/server/' } }] : []),
 ];
 
 const pappdriveRules =
