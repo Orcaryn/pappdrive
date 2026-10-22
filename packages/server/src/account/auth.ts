@@ -1,13 +1,17 @@
 import { DEFAULT_ARGON2, type LoginResponse, type ParamsResponse, type RecoverResponse, type RefreshResponse, type TokenResponse } from '@pappdrive/protocol';
-import { bearer, type InstallRow } from '../shared/access';
+import { and, eq } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/d1';
+import { bearer } from '../shared/access';
 import { keys } from '../shared/bucket';
 import { fromBase64, sha256Hex, toBase64Url } from '../shared/bytes';
 import type { Env } from '../shared/env';
 import { ApiError, json, noContent } from '../shared/http';
+import { apps, installs, users } from '../shared/schema';
 import { signToken } from '../shared/tokens';
 import * as v from '../shared/validate';
 import { appList } from './apps';
 import { checkCredentials, rateLimit, userByEmail } from './credentials';
+import { sendCode } from './verify';
 
 interface KeyFile {
   passwordCopy: string;
@@ -41,22 +45,17 @@ export async function signup(env: Env, request: Request): Promise<Response> {
 
   const now = Date.now();
   const user = crypto.randomUUID();
+  await sendCode(env, user, email);
   const install = await newInstall(env, user, app, read);
 
   await env.BUCKET.put(keys.userKey(user), JSON.stringify(keyFile));
-  const insertUser = env.DB.prepare('INSERT INTO users (id, email, login_hash, recovery_hash, m, t, p, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(
-    user,
-    email,
-    await sha256Hex(loginKey),
-    await sha256Hex(recoveryLoginKey),
-    DEFAULT_ARGON2.m,
-    DEFAULT_ARGON2.t,
-    DEFAULT_ARGON2.p,
-    now
-  );
-  const insertApp = app ? [env.DB.prepare('INSERT INTO apps (user_id, name, created) VALUES (?, ?, ?)').bind(user, app, now)] : [];
+  const d = drizzle(env.DB);
+  const insertUser = d
+    .insert(users)
+    .values({ id: user, email, loginHash: await sha256Hex(loginKey), recoveryHash: await sha256Hex(recoveryLoginKey), ...DEFAULT_ARGON2, created: now });
+  const insertApp = app ? [d.insert(apps).values({ userId: user, name: app, created: now })] : [];
   try {
-    await env.DB.batch([insertUser, ...insertApp, install.insert]);
+    await d.batch([insertUser, ...insertApp, install.insert]);
   } catch (e) {
     await env.BUCKET.delete(keys.userKey(user));
 
@@ -67,13 +66,13 @@ export async function signup(env: Env, request: Request): Promise<Response> {
 }
 
 export async function login(env: Env, request: Request): Promise<Response> {
-  const { tokens, file } = await signIn(env, request, 'loginKey', 'login_hash');
+  const { tokens, file } = await signIn(env, request, 'loginKey', 'loginHash');
 
   return json({ ...tokens, passwordCopy: file.passwordCopy } satisfies LoginResponse);
 }
 
 export async function recover(env: Env, request: Request): Promise<Response> {
-  const { tokens, file } = await signIn(env, request, 'recoveryLoginKey', 'recovery_hash');
+  const { tokens, file } = await signIn(env, request, 'recoveryLoginKey', 'recoveryHash');
 
   return json({ ...tokens, recoveryCopy: file.recoveryCopy } satisfies RecoverResponse);
 }
@@ -86,9 +85,12 @@ export async function refresh(env: Env, request: Request): Promise<Response> {
     throw new ApiError('credentials');
   }
 
-  const row = await env.DB.prepare('SELECT * FROM installs WHERE refresh_hash = ?')
-    .bind(await sha256Hex(raw))
-    .first<InstallRow>();
+  const d = drizzle(env.DB);
+  const row = await d
+    .select()
+    .from(installs)
+    .where(eq(installs.refreshHash, await sha256Hex(raw)))
+    .get();
 
   if (!row) {
     throw new ApiError('credentials');
@@ -97,14 +99,14 @@ export async function refresh(env: Env, request: Request): Promise<Response> {
   }
 
   const sent = body.read !== undefined;
-  const read = sent ? v.readList(body.read) : (JSON.parse(row.read) as string[]);
+  const read = sent ? v.readList(body.read) : row.read;
 
   if (sent) {
-    await requireApps(env, row.user_id, read);
-    await env.DB.prepare('UPDATE installs SET read = ? WHERE id = ?').bind(JSON.stringify(read), row.id).run();
+    await requireApps(env, row.userId, read);
+    await d.update(installs).set({ read }).where(eq(installs.id, row.id));
   }
 
-  return json({ accessToken: await signToken({ sub: row.user_id, app: row.app, install: row.id, read }, env.TOKEN_KEY) } satisfies RefreshResponse);
+  return json({ accessToken: await signToken({ sub: row.userId, app: row.app, install: row.id, read }, env.TOKEN_KEY) } satisfies RefreshResponse);
 }
 
 export async function changePassword(env: Env, request: Request): Promise<Response> {
@@ -115,8 +117,10 @@ export async function changePassword(env: Env, request: Request): Promise<Respon
   const params = v.argon2Params(body.params);
   const file = await readKeyFile(env, claims.sub);
   await env.BUCKET.put(keys.userKey(claims.sub), JSON.stringify({ ...file, passwordCopy } satisfies KeyFile));
-  const r = await env.DB.prepare('UPDATE users SET login_hash = ?, m = ?, t = ?, p = ? WHERE id = ?')
-    .bind(await sha256Hex(loginKey), params.m, params.t, params.p, claims.sub)
+  const r = await drizzle(env.DB)
+    .update(users)
+    .set({ loginHash: await sha256Hex(loginKey), ...params })
+    .where(eq(users.id, claims.sub))
     .run();
 
   if (r.meta.changes === 0) {
@@ -128,7 +132,10 @@ export async function changePassword(env: Env, request: Request): Promise<Respon
 
 export async function logout(env: Env, request: Request): Promise<Response> {
   const claims = await bearer(env, request);
-  await env.DB.prepare('UPDATE installs SET refresh_hash = NULL WHERE id = ? AND user_id = ?').bind(claims.install, claims.sub).run();
+  await drizzle(env.DB)
+    .update(installs)
+    .set({ refreshHash: null })
+    .where(and(eq(installs.id, claims.install), eq(installs.userId, claims.sub)));
 
   return noContent();
 }
@@ -137,7 +144,7 @@ async function signIn(
   env: Env,
   request: Request,
   keyField: 'loginKey' | 'recoveryLoginKey',
-  hashColumn: 'login_hash' | 'recovery_hash'
+  hashColumn: 'loginHash' | 'recoveryHash'
 ): Promise<{ tokens: TokenResponse; file: KeyFile }> {
   const body = v.obj(await v.body(request));
   const email = v.email(body.email);
@@ -157,14 +164,9 @@ async function signIn(
 async function newInstall(env: Env, user: string, app: string, read: string[]) {
   const refreshBytes = crypto.getRandomValues(new Uint8Array(32));
   const id = crypto.randomUUID();
-  const insert = env.DB.prepare('INSERT INTO installs (id, user_id, app, refresh_hash, read, stopped, created) VALUES (?, ?, ?, ?, ?, NULL, ?)').bind(
-    id,
-    user,
-    app,
-    await sha256Hex(refreshBytes),
-    JSON.stringify(read),
-    Date.now()
-  );
+  const insert = drizzle(env.DB)
+    .insert(installs)
+    .values({ id, userId: user, app, refreshHash: await sha256Hex(refreshBytes), read, created: Date.now() });
   const tokens: TokenResponse = { accessToken: await signToken({ sub: user, app, install: id, read }, env.TOKEN_KEY), refreshToken: toBase64Url(refreshBytes), installId: id };
 
   return { insert, tokens };

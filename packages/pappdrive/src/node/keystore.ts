@@ -14,71 +14,8 @@ export interface NodeKeyStoreOptions {
 
 export function nodeKeyStore(opts: NodeKeyStoreOptions = {}): KeyStore {
   const dir = opts.dir ?? configDir();
-  const fileStore = fileKeyStore(dir);
-
-  return opts.backend === 'file' ? fileStore : keychainKeyStore(fileStore, dir);
-}
-
-function keychainKeyStore(fileStore: KeyStore, dir: string): KeyStore {
-  let keychain: Promise<typeof AsyncEntry | null> = import('@napi-rs/keyring').then(
-    m => m.AsyncEntry,
-    () => null
-  );
-  let warned = false;
-
-  const giveUp = (e: unknown) => {
-    keychain = Promise.resolve(null);
-
-    if (warned) {
-      return;
-    }
-
-    warned = true;
-    console.warn(
-      `pappdrive: the system keychain is not available (${String(e)}). ` +
-        `The key is kept in a file in ${dir}, readable only by you. ` +
-        `To use the keychain on Linux, install and unlock a secret service such as GNOME Keyring or KWallet.`
-    );
-  };
-
-  const inKeychain = async <T>(name: string, op: (entry: AsyncEntry) => Promise<T>): Promise<T | undefined> => {
-    const Entry = await keychain;
-
-    if (!Entry) {
-      return undefined;
-    }
-
-    try {
-      return await op(new Entry(KEYCHAIN_SERVICE, name));
-    } catch (e) {
-      giveUp(e);
-
-      return undefined;
-    }
-  };
-
-  return {
-    get: async name => (await inKeychain(name, entry => entry.getPassword())) ?? fileStore.get(name),
-    async set(name, value) {
-      const stored = await inKeychain(name, async entry => {
-        await entry.setPassword(value);
-
-        return true;
-      });
-
-      await (stored ? fileStore.delete(name) : fileStore.set(name, value));
-    },
-    async delete(name) {
-      await inKeychain(name, entry => entry.deletePassword());
-      await fileStore.delete(name);
-    },
-  };
-}
-
-function fileKeyStore(dir: string): KeyStore {
   const file = (name: string) => join(dir, `${createHash('sha256').update(name).digest('hex')}.key`);
-
-  return {
+  const fileStore: KeyStore = {
     async get(name) {
       try {
         return await fsp.readFile(file(name), 'utf8');
@@ -100,5 +37,57 @@ function fileKeyStore(dir: string): KeyStore {
       await fsp.rename(temp, target);
     },
     delete: name => fsp.rm(file(name), { force: true }),
+  };
+
+  if (opts.backend === 'file') {
+    return fileStore;
+  }
+
+  let keychain: Promise<typeof AsyncEntry | null> = import('@napi-rs/keyring').then(
+    m => m.AsyncEntry,
+    () => null
+  );
+  let warned = false;
+
+  const inKeychain = async <T>(name: string, op: (entry: AsyncEntry) => Promise<T>): Promise<T | undefined> => {
+    const Entry = await keychain;
+
+    if (!Entry) {
+      return undefined;
+    }
+
+    try {
+      return await op(new Entry(KEYCHAIN_SERVICE, name));
+    } catch (e) {
+      keychain = Promise.resolve(null);
+
+      if (!warned) {
+        warned = true;
+        console.warn(
+          `pappdrive: the system keychain is not available (${String(e)}). ` +
+            `The key is kept in a file in ${dir}, readable only by you. ` +
+            `To use the keychain on Linux, install and unlock a secret service such as GNOME Keyring or KWallet.`
+        );
+      }
+
+      return undefined;
+    }
+  };
+
+  return {
+    get: async name => (await inKeychain(name, entry => entry.getPassword())) ?? fileStore.get(name),
+    async set(name, value) {
+      const stored = await inKeychain(name, async entry => {
+        await entry.setPassword(value);
+
+        return true;
+      });
+
+      await (stored ? fileStore.delete(name) : fileStore.set(name, value));
+    },
+    async delete(name) {
+      await inKeychain(name, entry => entry.deletePassword());
+      await fileStore.delete(name);
+    },
   };
 }

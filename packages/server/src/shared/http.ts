@@ -14,6 +14,7 @@ const ERROR_STATUS: Record<ErrorWord, number> = {
   credentials: 401,
   expired: 401,
   'not-allowed': 403,
+  unverified: 403,
   'no-app': 404,
   exists: 409,
   gone: 410,
@@ -21,6 +22,7 @@ const ERROR_STATUS: Record<ErrorWord, number> = {
   'too-big': 413,
   missing: 422,
   'rate-limited': 429,
+  'over-quota': 507,
 };
 // the rate limit periods in wrangler.jsonc are 60 seconds.
 const RETRY_AFTER_SECONDS = '60';

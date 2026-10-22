@@ -4,6 +4,7 @@ import type { TokenResponse } from '@pappdrive/protocol';
 import { openNodeFs } from '../../../node/fs.js';
 import { nodePlatform } from '../../../node/platform.js';
 import { logInWithPassword, logInWithRecoveryCode } from '../../../papp/account.js';
+import { hashWasmArgon2 } from '../../../shared/argon2.js';
 import { createApi } from '../../../papp/api.js';
 import { openFolder } from '../../../papp/folder/index.js';
 import { request } from '../../../papp/http.js';
@@ -16,7 +17,20 @@ import { askEmail, withPassword } from '../../shared/sign-in.js';
 
 export async function exportApp(ctx: Ctx, app: string, dir: string): Promise<void> {
   const target = resolve(dir);
-  await assertEmptyOrUnfinished(target);
+  const names = await fsp.readdir(target).catch((e: NodeJS.ErrnoException) => {
+    if (e.code === 'ENOENT') {
+      return [];
+    } else if (e.code === 'ENOTDIR') {
+      throw new CliError(`"${target}" is a file. Give export a folder to write into.`);
+    }
+
+    throw e;
+  });
+
+  if (names.some(n => n !== HIDDEN_DIR && n !== '.DS_Store')) {
+    throw new CliError(`"${target}" is not empty. Export into a new or empty folder.`);
+  }
+
   ctx.out(`Exporting "${app}" from ${ctx.server} into ${target}.`);
   const email = await askEmail(ctx);
   const session = await unlockAccount(ctx, email, app);
@@ -29,7 +43,7 @@ export async function exportApp(ctx: Ctx, app: string, dir: string): Promise<voi
     keys: await dataKeys(session.dataKey),
     api: api.folderApi(app, true),
     platform: nodePlatform,
-    checkGone: async () => 'ok',
+    noticeGone: async () => {},
   });
   let landed = 0;
   folder.watch(() => ctx.status(`${++landed} files`));
@@ -65,25 +79,9 @@ export async function exportApp(ctx: Ctx, app: string, dir: string): Promise<voi
   }
 }
 
-async function assertEmptyOrUnfinished(dir: string): Promise<void> {
-  const names = await fsp.readdir(dir).catch((e: NodeJS.ErrnoException) => {
-    if (e.code === 'ENOENT') {
-      return [];
-    } else if (e.code === 'ENOTDIR') {
-      throw new CliError(`"${dir}" is a file. Give export a folder to write into.`);
-    }
-
-    throw e;
-  });
-
-  if (names.some(n => n !== HIDDEN_DIR && n !== '.DS_Store')) {
-    throw new CliError(`"${dir}" is not empty. Export into a new or empty folder.`);
-  }
-}
-
 async function unlockAccount(ctx: Ctx, email: string, app: string): Promise<TokenResponse & { dataKey: Uint8Array }> {
   if (!ctx.flags.recovery) {
-    return withPassword(ctx, pw => logInWithPassword(ctx.server, email, pw, { read: [app] }));
+    return withPassword(ctx, pw => logInWithPassword(ctx.server, hashWasmArgon2, email, pw, { read: [app] }));
   }
 
   const code = await ctx.prompter.ask('Recovery code: ');

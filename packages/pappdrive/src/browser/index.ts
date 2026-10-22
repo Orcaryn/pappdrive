@@ -1,3 +1,4 @@
+import { hashWasmArgon2 } from '../shared/argon2.js';
 import { SyncError } from '../shared/errors.js';
 import { createPappCore } from '../papp/index.js';
 import type { Papp, PappOptions } from '../shared/types.js';
@@ -11,6 +12,7 @@ export function createPapp(opts: PappOptions): Papp {
 }
 
 const browserPlatform: Platform = {
+  argon2: hashWasmArgon2,
   openPrivate: openOpfs,
   async openVisible(path) {
     throw new SyncError(

@@ -5,7 +5,7 @@ const RETRY_MIN_MS = 1000;
 const RETRY_MAX_MS = 60_000;
 const REOPEN_BEFORE_EXPIRY_MS = 30_000;
 
-export function watchIndex(url: string, freshToken: () => Promise<string>, onChange: () => void): () => void {
+export function watchIndex(url: string, freshToken: () => Promise<string>, check: () => void): () => void {
   let socket: WebSocket | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined = undefined;
   let retryMs = RETRY_MIN_MS;
@@ -14,26 +14,25 @@ export function watchIndex(url: string, freshToken: () => Promise<string>, onCha
   connect();
 
   function connect(): void {
-    void freshToken().then(open, retryLater);
-  }
+    void freshToken().then(token => {
+      if (stopped) {
+        return;
+      }
 
-  function open(token: string): void {
-    if (stopped) {
-      return;
-    }
+      const ws = new WebSocket(url, [WATCH_PROTOCOL, token]);
+      socket = ws;
+      ws.onopen = () => {
+        retryMs = RETRY_MIN_MS;
+        check();
+        schedule(() => ws.close(), decodeJwt(token).exp * 1000 - REOPEN_BEFORE_EXPIRY_MS - Date.now());
+      };
 
-    const ws = new WebSocket(url, [WATCH_PROTOCOL, token]);
-    socket = ws;
-    ws.onopen = () => {
-      retryMs = RETRY_MIN_MS;
-      schedule(() => ws.close(), decodeJwt(token).exp * 1000 - REOPEN_BEFORE_EXPIRY_MS - Date.now());
-    };
-
-    ws.onmessage = onChange;
-    ws.onclose = () => {
-      socket = null;
-      retryLater();
-    };
+      ws.onmessage = check;
+      ws.onclose = () => {
+        socket = null;
+        retryLater();
+      };
+    }, retryLater);
   }
 
   function retryLater(): void {

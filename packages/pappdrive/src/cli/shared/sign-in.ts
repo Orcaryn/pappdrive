@@ -1,5 +1,6 @@
-import { normalizeEmail, type RefreshResponse } from '@pappdrive/protocol';
+import { MIN_PASSWORD_LENGTH, normalizeEmail, type RefreshResponse } from '@pappdrive/protocol';
 import { logInWithPassword } from '../../papp/account.js';
+import { hashWasmArgon2 } from '../../shared/argon2.js';
 import { ApiError, request } from '../../papp/http.js';
 import { type Ctx, remember } from './context.js';
 import { describeError } from './errors.js';
@@ -23,6 +24,26 @@ export async function askEmail(ctx: Ctx): Promise<string> {
   }
 }
 
+export async function askNewPassword(ctx: Ctx): Promise<string> {
+  for (;;) {
+    const pw = await ctx.prompter.askHidden(`Password (at least ${MIN_PASSWORD_LENGTH} characters): `);
+    const length = [...pw].length;
+
+    if (length < MIN_PASSWORD_LENGTH) {
+      ctx.out(`That is ${length} characters. Use at least ${MIN_PASSWORD_LENGTH}; a short sentence works well.`);
+      continue;
+    }
+
+    const again = await ctx.prompter.askHidden('Type it again: ');
+
+    if (again === pw) {
+      return pw;
+    }
+
+    ctx.out('The two passwords differ. Try again.');
+  }
+}
+
 export async function withPassword<T>(ctx: Ctx, step: (password: string) => Promise<T>): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     const password = await ctx.prompter.askHidden('Password: ');
@@ -43,7 +64,7 @@ export async function withPassword<T>(ctx: Ctx, step: (password: string) => Prom
 
 export async function signIn(ctx: Ctx): Promise<string> {
   const email = await askEmail(ctx);
-  const res = await withPassword(ctx, pw => logInWithPassword(ctx.server, email, pw, { read: [] }));
+  const res = await withPassword(ctx, pw => logInWithPassword(ctx.server, hashWasmArgon2, email, pw, { read: [] }));
   await ctx.keyStore.set(ctx.sessionName, res.refreshToken);
   await remember(ctx, email);
 

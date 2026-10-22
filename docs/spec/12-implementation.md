@@ -66,7 +66,9 @@ How the design is built. The other sections say what and why. This one says with
 - File id of a big file: HMAC-SHA256, with the file id key, of the part ids in order, each as its 32 raw bytes.
 - Its own key, so a big file's id and a blob id are made in different ways and cannot match by accident.
 ### Index body
-- JSON, then gzip, then AES-256-GCM with a random 12-byte nonce in front, then base64. The same for a delta body, whose JSON maps paths to entries or `null`.
+- JSON, then gzip, then AES-256-GCM with a random 12-byte nonce in front, then base64. The same for a delta body, whose JSON is `{ seq, ops }`: `ops` maps paths to entries or `null`.
+- The GCM additional data names the body's place: `pappdrive index|<app>|<index id>` or `pappdrive delta|<app>|<base index id>`. All apps share one key, so without it the server could hand one app another app's index, or a delta made for another base.
+- `seq` counts commits: each commit, delta or checkpoint, writes the last seen `seq` plus one. A device keeps the highest `seq` it has seen, next to its disk and synced indexes, and stops syncing when the server sends a lower one. So the server cannot roll a folder back to an older index without the device noticing.
 ### Path comparison
 - NFC first, then Unicode lowercase (`toLowerCase()` after `normalize("NFC")`), for comparing only. The stored path keeps its spelling.
 ### Content ids, step by step

@@ -1,6 +1,6 @@
-import { argon2id } from 'hash-wasm';
-import { type Argon2Params, type DeltaBody, type IndexBody, normalizeEmail } from '@pappdrive/protocol';
-import { withPlainBuffer, concat, fromBase64, toBase64, toHex, fromHex, utf8 } from './bytes.js';
+import { gunzipSync, gzipSync } from 'fflate';
+import { type Argon2Params, type DeltaPayload, type IndexBody, normalizeEmail } from '@pappdrive/protocol';
+import { withPlainBuffer, concat, fromBase64, toBase64, toHex, fromHex, utf8, fromUtf8 } from './bytes.js';
 import { SyncError } from './errors.js';
 
 const subtle = globalThis.crypto.subtle;
@@ -18,17 +18,12 @@ async function hkdf(ikm: Uint8Array, info: string): Promise<Uint8Array<ArrayBuff
   return new Uint8Array(await subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: utf8.encode(info) }, key, 256));
 }
 
-export async function deriveFromPassword(email: string, password: string, params: Argon2Params) {
+/** Argon2id of the NFC-normalized password, 32 bytes. The host picks the implementation. */
+export type Argon2 = (password: string, salt: Uint8Array, params: Argon2Params) => Promise<Uint8Array>;
+
+export async function deriveFromPassword(argon2: Argon2, email: string, password: string, params: Argon2Params) {
   const salt = new Uint8Array(await subtle.digest('SHA-256', utf8.encode('pappdrive|' + normalizeEmail(email))));
-  const out = await argon2id({
-    password: password.normalize('NFC'),
-    salt,
-    parallelism: params.p,
-    iterations: params.t,
-    memorySize: params.m,
-    hashLength: 32,
-    outputType: 'binary',
-  });
+  const out = await argon2(password.normalize('NFC'), salt, params);
 
   return { loginKey: await hkdf(out, 'pappdrive login key'), passwordKey: await hkdf(out, 'pappdrive password key') };
 }
@@ -95,30 +90,39 @@ export async function decryptBlob(keys: DataKeys, blob: Uint8Array, expectedId: 
   return plaintext;
 }
 
-type Body = IndexBody | DeltaBody;
+type Body = IndexBody | DeltaPayload;
 
-export async function encodeBody(keys: DataKeys, body: Body): Promise<string> {
-  const gzip = new Blob([JSON.stringify(body)]).stream().pipeThrough(new CompressionStream('gzip'));
-
-  return toBase64(await seal(keys.enc, new Uint8Array(await new Response(gzip).arrayBuffer())));
+export interface BodyPlace {
+  kind: 'index' | 'delta';
+  app: string;
+  base: string;
 }
 
-export async function decodeBody<T extends Body>(keys: DataKeys, b64: string): Promise<T> {
-  const gzip = await unseal(keys.enc, fromBase64(b64), new SyncError('server', "The index did not decrypt with this account's key."));
-
-  return (await new Response(new Blob([gzip]).stream().pipeThrough(new DecompressionStream('gzip'))).json()) as T;
+export async function encodeBody(keys: DataKeys, place: BodyPlace, body: Body): Promise<string> {
+  return toBase64(await seal(keys.enc, gzipSync(utf8.encode(JSON.stringify(body))), utf8.encode(`pappdrive ${place.kind}|${place.app}|${place.base}`)));
 }
 
-async function seal(key: CryptoKey, plaintext: Uint8Array): Promise<Uint8Array<ArrayBuffer>> {
+export async function decodeBody<T extends Body>(keys: DataKeys, place: BodyPlace, b64: string): Promise<T> {
+  const gzip = await unseal(
+    keys.enc,
+    fromBase64(b64),
+    new SyncError('server', `The ${place.kind} of "${place.app}" did not decrypt with this account's key, or the server sent one that belongs elsewhere.`),
+    utf8.encode(`pappdrive ${place.kind}|${place.app}|${place.base}`)
+  );
+
+  return JSON.parse(fromUtf8.decode(gunzipSync(gzip))) as T;
+}
+
+async function seal(key: CryptoKey, plaintext: Uint8Array, aad = new Uint8Array(0)): Promise<Uint8Array<ArrayBuffer>> {
   const nonce = randomBytes(12);
 
-  return concat(nonce, new Uint8Array(await subtle.encrypt({ name: 'AES-GCM', iv: nonce }, key, withPlainBuffer(plaintext))));
+  return concat(nonce, new Uint8Array(await subtle.encrypt({ name: 'AES-GCM', iv: nonce, additionalData: aad }, key, withPlainBuffer(plaintext))));
 }
 
-async function unseal(key: CryptoKey, sealed: Uint8Array, failure: SyncError): Promise<Uint8Array<ArrayBuffer>> {
+async function unseal(key: CryptoKey, sealed: Uint8Array, failure: SyncError, aad = new Uint8Array(0)): Promise<Uint8Array<ArrayBuffer>> {
   const bytes = withPlainBuffer(sealed);
 
-  return subtle.decrypt({ name: 'AES-GCM', iv: bytes.subarray(0, 12) }, key, bytes.subarray(12)).then(
+  return subtle.decrypt({ name: 'AES-GCM', iv: bytes.subarray(0, 12), additionalData: aad }, key, bytes.subarray(12)).then(
     plain => new Uint8Array(plain),
     () => {
       throw failure;

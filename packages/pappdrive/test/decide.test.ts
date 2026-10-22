@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { decide, type Decision } from '../src/papp/folder/round/decide.js';
 import { pathKey } from '../src/shared/paths.js';
-import type { Rec } from '../src/papp/folder/shared/state.js';
+import type { Rec } from '../src/papp/folder/state.js';
 
 const ID = (c: string) => c.repeat(64);
 const rec = (path: string, id: string): Rec => ({ path, entry: { id, size: 1, mtime: 1 } });

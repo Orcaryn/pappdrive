@@ -7,8 +7,8 @@
   "observability": { "enabled": true },
   "routes": [{ "pattern": "sync.pappdrive.com", "custom_domain": true }],
 
-  // D1: users, apps, installs. Schema in migrations/.
-  "d1_databases": [{ "binding": "DB", "database_name": "pappdrive", "database_id": "8623e6c4-0e33-4db9-83f0-9a6d6767f02c", "migrations_dir": "migrations" }],
+  // D1: plans, users, apps, installs. Schema in src/shared/schema.ts; drizzle-kit generates migrations/.
+  "d1_databases": [{ "binding": "DB", "database_name": "pappdrive", "database_id": "8ac9b5d8-bfbb-4d8b-aa64-22d293533368", "migrations_dir": "migrations" }],
 
   // R2 through the binding: blobs, the index and its kept copies.
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "pappdrive-prod" }],
@@ -25,7 +25,12 @@
   "ratelimits": [
     { "name": "RL_EMAIL", "namespace_id": "4101", "simple": { "limit": 20, "period": 60 } },
     { "name": "RL_IP", "namespace_id": "4102", "simple": { "limit": 60, "period": 60 } },
+    // Blob uploads, per user.
+    { "name": "RL_UPLOAD", "namespace_id": "4103", "simple": { "limit": 600, "period": 60 } },
   ],
+
+  // Email verification codes, from noreply@pappdrive.com (onboarded in Email Service).
+  "send_email": [{ "name": "EMAIL", "allowed_sender_addresses": ["noreply@pappdrive.com"] }],
 
   // Secrets (wrangler secret put): TOKEN_KEY, and TOKEN_KEY_OLD only while rotating.
 }

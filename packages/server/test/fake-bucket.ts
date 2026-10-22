@@ -5,6 +5,7 @@ interface Entry {
   size: number;
   uploaded: Date;
   etag: string;
+  customMetadata?: Record<string, string>;
 }
 
 export interface FakeBucket extends FolderBucket {
@@ -25,7 +26,7 @@ export function createFakeBucket(): FakeBucket {
   async function get(key: string) {
     const e = bucket.objects.get(key);
 
-    return e ? { httpEtag: e.etag, text: async () => e.value } : null;
+    return e ? { httpEtag: e.etag, customMetadata: e.customMetadata, text: async () => e.value } : null;
   }
 
   async function head(key: string) {
@@ -35,7 +36,7 @@ export function createFakeBucket(): FakeBucket {
     return e ? { size: e.size } : null;
   }
 
-  async function put(key: string, value: string, options?: { onlyIf?: Headers }) {
+  async function put(key: string, value: string, options?: { onlyIf?: Headers; customMetadata?: Record<string, string> }) {
     const existing = bucket.objects.get(key);
     const ifMatch = options?.onlyIf?.get('If-Match');
 
@@ -46,7 +47,7 @@ export function createFakeBucket(): FakeBucket {
     }
 
     const etag = `"e${++n}"`;
-    bucket.objects.set(key, { value, size: value.length, uploaded: bucket.now(), etag });
+    bucket.objects.set(key, { value, size: value.length, uploaded: bucket.now(), etag, customMetadata: options?.customMetadata });
 
     return { httpEtag: etag };
   }

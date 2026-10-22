@@ -1,8 +1,8 @@
 import type { IndexEntry } from '@pappdrive/protocol';
 import { blobIdsOf } from '@pappdrive/protocol';
 import { blobId, encryptBlob } from '../../../shared/crypto.js';
-import type { LocalState } from '../shared/state.js';
-import type { FolderContext } from '../shared/types.js';
+import type { LocalState } from '../state.js';
+import type { FolderContext } from '../types.js';
 
 const BATCH_BYTES = 32 * 1024 * 1024;
 const PUT_CONCURRENCY = 4;
@@ -87,15 +87,14 @@ export function createUploader(ctx: FolderContext, state: LocalState, partSize: 
     batchBytes = 0;
     try {
       const queue = sending.values();
-
-      const worker = async () => {
-        for (const b of queue) {
-          await ctx.api.putBlob(b.id, b.data);
-          state.markUploaded(b.id);
-        }
-      };
-
-      await Promise.all(Array.from({ length: Math.min(PUT_CONCURRENCY, sending.length) }, worker));
+      await Promise.all(
+        Array.from({ length: Math.min(PUT_CONCURRENCY, sending.length) }, async () => {
+          for (const b of queue) {
+            await ctx.api.putBlob(b.id, b.data);
+            state.markUploaded(b.id);
+          }
+        })
+      );
     } finally {
       for (const b of sending) {
         inBatch.delete(b.id);

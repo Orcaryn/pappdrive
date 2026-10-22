@@ -1,16 +1,10 @@
-import { APP_NAME_RE, WATCH_PROTOCOL, type AccessClaims, type GoneReason } from '@pappdrive/protocol';
+import { APP_NAME_RE, WATCH_PROTOCOL, type AccessClaims } from '@pappdrive/protocol';
+import { and, eq, ne } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/d1';
 import type { Env } from './env';
 import { ApiError } from './http';
+import { apps, installs, plans, users } from './schema';
 import { verifyToken } from './tokens';
-
-export interface InstallRow {
-  id: string;
-  user_id: string;
-  app: string;
-  refresh_hash: string | null;
-  read: string;
-  stopped: GoneReason | null;
-}
 
 export function bearer(env: Env, request: Request): Promise<AccessClaims> {
   const header = request.headers.get('Authorization');
@@ -35,22 +29,36 @@ async function verified(env: Env, token: string | undefined): Promise<AccessClai
   return claims;
 }
 
-export async function activeWriter(env: Env, claims: AccessClaims): Promise<string> {
+export async function activeWriter(env: Env, claims: AccessClaims): Promise<{ app: string; room: number }> {
   if (!claims.app) {
     throw new ApiError('not-allowed');
   }
 
-  const row = await env.DB.prepare('SELECT * FROM installs WHERE id = ?').bind(claims.install).first<InstallRow>();
+  const d = drizzle(env.DB);
+  const [[install], otherApps] = await d.batch([
+    d
+      .select({ stopped: installs.stopped, refreshHash: installs.refreshHash, verified: users.verified, quota: plans.quotaBytes })
+      .from(installs)
+      .innerJoin(users, eq(users.id, installs.userId))
+      .innerJoin(plans, eq(plans.id, users.plan))
+      .where(eq(installs.id, claims.install)),
+    d
+      .select({ bytes: apps.bytes })
+      .from(apps)
+      .where(and(eq(apps.userId, claims.sub), ne(apps.name, claims.app))),
+  ]);
 
-  if (!row) {
+  if (!install) {
     throw new ApiError('expired');
-  } else if (row.stopped) {
-    throw new ApiError('gone', { reason: row.stopped });
-  } else if (row.refresh_hash === null) {
+  } else if (install.stopped) {
+    throw new ApiError('gone', { reason: install.stopped });
+  } else if (install.refreshHash === null) {
     throw new ApiError('expired');
+  } else if (install.verified === null) {
+    throw new ApiError('unverified');
   }
 
-  return claims.app;
+  return { app: claims.app, room: otherApps.reduce((room, other) => room - other.bytes, install.quota) };
 }
 
 export function readableApp(claims: AccessClaims, url: URL): string {

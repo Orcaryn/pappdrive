@@ -5,11 +5,11 @@ import type { FsAdapter, Platform } from '../shared/platform.js';
 import type { Api } from './api.js';
 import { signedOut } from './errors.js';
 import { openFolder } from './folder/index.js';
-import type { Folder } from './folder/shared/types.js';
+import type { Folder } from './folder/types.js';
 
 const OWN_FOLDER_KEY = '';
 
-export function createOpenFolders(api: Api, platform: Platform) {
+export function createOpenFolders(api: Api, platform: Platform, syncOnBackground?: boolean) {
   const folders = new Map<string, Promise<Folder>>();
 
   async function open(dataKey: string, app: string, readOnly: boolean, openFs: () => Promise<FsAdapter>): Promise<Folder> {
@@ -25,10 +25,15 @@ export function createOpenFolders(api: Api, platform: Platform) {
           keys: await dataKeys(fromBase64(dataKey)),
           api: api.folderApi(app, readOnly),
           platform,
-          checkGone: () =>
+          syncOnBackground,
+          noticeGone: () =>
             api.refresh().then(
-              () => 'ok' as const,
-              e => (e instanceof SyncError && e.code === 'gone' ? 'gone' : 'ok')
+              () => undefined,
+              (e: unknown) => {
+                if (!(e instanceof SyncError && e.code === 'gone')) {
+                  throw e;
+                }
+              }
             ),
         });
         await folder.start().catch(async (e: unknown) => {
@@ -58,14 +63,14 @@ export function createOpenFolders(api: Api, platform: Platform) {
   }
 
   async function stopAll(stop: (f: Folder) => Promise<void>): Promise<void> {
-    const stopping = [...folders.values()];
+    const openings = [...folders.values()];
     folders.clear();
-    const results = await Promise.allSettled(stopping.map(async opening => stop(await opening)));
+    const opened = (await Promise.allSettled(openings)).flatMap(r => (r.status === 'fulfilled' ? [r.value] : []));
+    const results = await Promise.allSettled(opened.map(stop));
+    const failures = results.flatMap(r => (r.status === 'rejected' ? [r.reason] : []));
 
-    for (const r of results) {
-      if (r.status === 'rejected') {
-        console.warn('pappdrive: a folder did not stop cleanly:', r.reason);
-      }
+    if (failures.length > 0) {
+      throw new AggregateError(failures, 'A folder did not stop cleanly.');
     }
   }
 

@@ -10,7 +10,9 @@ const HEAD_PARALLEL = 20;
 
 type Header = Record<string, number>;
 
-export async function commitDelta(bucket: FolderBucket, f: Folder, delta: DeltaFile, etag: string): Promise<CommitResult> {
+export type FolderCommit = { ok: true; etag: string; bytes: number } | Exclude<CommitResult, { ok: true }> | { ok: false; error: 'over-quota' };
+
+export async function commitDelta(bucket: FolderBucket, f: Folder, delta: DeltaFile, etag: string, room: number): Promise<FolderCommit> {
   const deltaKey = keys.delta(f.user, f.app);
   const current = await bucket.get(deltaKey);
 
@@ -24,6 +26,19 @@ export async function commitDelta(bucket: FolderBucket, f: Folder, delta: DeltaF
     return { ok: false, error: 'stale' };
   }
 
+  const baseBytes = current.customMetadata?.baseBytes;
+
+  if (baseBytes === undefined) {
+    throw new Error(`The delta of ${f.user}/${f.app} has no baseBytes metadata.`);
+  }
+
+  const had = Number(baseBytes) + Object.values(before.blobs).reduce((a, b) => a + b, 0);
+  const bytes = Number(baseBytes) + Object.values(delta.blobs).reduce((a, b) => a + b, 0);
+
+  if (bytes > room && bytes > had) {
+    return { ok: false, error: 'over-quota' };
+  }
+
   const { added, missing } = diffHeader(before.blobs, delta.blobs);
   missing.push(...(await headMissing(bucket, f, added)));
 
@@ -31,16 +46,24 @@ export async function commitDelta(bucket: FolderBucket, f: Folder, delta: DeltaF
     return { ok: false, error: 'missing', missing };
   }
 
-  const written = await bucket.put(deltaKey, JSON.stringify(delta), { onlyIf: new Headers({ 'If-Match': etag }) });
+  const written = await bucket.put(deltaKey, JSON.stringify(delta), { onlyIf: new Headers({ 'If-Match': etag }), customMetadata: { baseBytes } });
 
   if (written === null) {
     return { ok: false, error: 'stale' };
   }
 
-  return { ok: true, etag: written.httpEtag };
+  return { ok: true, etag: written.httpEtag, bytes };
 }
 
-export async function commitCheckpoint(bucket: FolderBucket, f: Folder, index: IndexFile, delta: DeltaFile, etag: string | null, nowMs = Date.now()): Promise<CommitResult> {
+export async function commitCheckpoint(
+  bucket: FolderBucket,
+  f: Folder,
+  index: IndexFile,
+  delta: DeltaFile,
+  etag: string | null,
+  room: number,
+  nowMs = Date.now()
+): Promise<FolderCommit> {
   const deltaKey = keys.delta(f.user, f.app);
   const current = await bucket.get(deltaKey);
 
@@ -49,6 +72,13 @@ export async function commitCheckpoint(bucket: FolderBucket, f: Folder, index: I
   }
 
   const before = current === null ? {} : await liveHeader(bucket, f, JSON.parse(await current.text()) as DeltaFile);
+  const had = Object.values(before).reduce((a, b) => a + b, 0);
+  const bytes = Object.values(index.blobs).reduce((a, b) => a + b, 0);
+
+  if (bytes > room && bytes > had) {
+    return { ok: false, error: 'over-quota' };
+  }
+
   const { added, missing } = diffHeader(before, index.blobs);
   missing.push(...(await findMissing(bucket, f, added, Object.keys(index.blobs).length)));
 
@@ -63,7 +93,7 @@ export async function commitCheckpoint(bucket: FolderBucket, f: Folder, index: I
   }
 
   const onlyIf = new Headers(etag === null ? { 'If-None-Match': '*' } : { 'If-Match': etag });
-  const written = await bucket.put(deltaKey, JSON.stringify(delta), { onlyIf });
+  const written = await bucket.put(deltaKey, JSON.stringify(delta), { onlyIf, customMetadata: { baseBytes: String(bytes) } });
 
   if (written === null) {
     return { ok: false, error: 'stale' };
@@ -72,7 +102,7 @@ export async function commitCheckpoint(bucket: FolderBucket, f: Folder, index: I
   const older = (await listIndexes(bucket, f)).filter(k => k.id !== delta.base);
   await deleteKeys(bucket, expiredKept(older, nowMs));
 
-  return { ok: true, etag: written.httpEtag };
+  return { ok: true, etag: written.httpEtag, bytes };
 }
 
 export function expiredKept(kept: KeptIndex[], nowMs: number): string[] {

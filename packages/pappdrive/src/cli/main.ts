@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { PromptCancelled } from './shared/prompt.js';
 import { appsCreate, appsList } from './commands/apps.js';
-import { login, logout, signup } from './commands/account.js';
+import { login, logout, signup, verify } from './commands/account.js';
 import { deleteAccount, deleteApp } from './commands/delete.js';
 import { exportApp } from './commands/export/index.js';
 import { HELP, parseArgs, type Command } from './shared/args.js';
@@ -10,6 +9,7 @@ import { CliError, describeError } from './shared/errors.js';
 
 const RUN: Record<Command, (ctx: Ctx, ...args: string[]) => Promise<void>> = {
   signup,
+  verify,
   login,
   logout,
   'apps list': appsList,
@@ -52,13 +52,6 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   } catch (e) {
     ctx.status('');
-
-    if (e instanceof PromptCancelled) {
-      process.stderr.write(`${e.message}\n`);
-
-      return 130;
-    }
-
     process.stderr.write(`${describeError(e, ctx.server, flags.recovery ? 'recover' : command, flags.app ?? args[0])}\n`);
 
     return e instanceof CliError ? e.exitCode : 1;

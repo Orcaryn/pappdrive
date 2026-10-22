@@ -1,12 +1,6 @@
 import * as readline from 'node:readline';
 import { Writable } from 'node:stream';
-
-export class PromptCancelled extends Error {
-  constructor(message = 'Cancelled.') {
-    super(message);
-    this.name = 'PromptCancelled';
-  }
-}
+import { CliError } from './errors.js';
 
 export interface Prompter {
   ask(question: string): Promise<string>;
@@ -41,7 +35,7 @@ export function createPrompter(): Prompter {
     const line = await lines.next();
 
     if (line.done) {
-      throw cancelled ? new PromptCancelled() : new PromptCancelled('No more input: the questions could not be answered.');
+      throw new CliError(cancelled ? 'Cancelled.' : 'No more input: the questions could not be answered.', 130);
     }
 
     return line.value;

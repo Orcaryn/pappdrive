@@ -1,14 +1,14 @@
-import type { CommitResult, DeltaBody, DeltaFile, IndexBody, IndexEntry, IndexFile } from '@pappdrive/protocol';
+import type { CommitResult, DeltaBody, DeltaFile, DeltaPayload, IndexBody, IndexEntry, IndexFile } from '@pappdrive/protocol';
 import { BLOB_OVERHEAD, blobIdsOf, DELTA_MAX } from '@pappdrive/protocol';
 import { toHex } from '../../../shared/bytes.js';
 import { encodeBody, randomBytes } from '../../../shared/crypto.js';
 import { pathKey } from '../../../shared/paths.js';
-import { hashFile } from '../shared/hash.js';
-import { serverView, type BaseIndex, type Rec, type ServerView } from '../shared/state.js';
+import { hashFile } from '../hash.js';
+import { serverView, type BaseIndex, type Rec, type ServerView } from '../state.js';
 import { findClashes } from './clashes.js';
 import type { Decision } from './decide.js';
-import { folderSpellings, respell } from './shared/spelling.js';
-import { Stopped, type RoundDeps } from './shared/types.js';
+import { folderSpellings, respell } from './spelling.js';
+import type { RoundDeps } from './deps.js';
 import { createUploader, type Uploader } from './upload.js';
 
 export async function commitLocal(r: RoundDeps, view: ServerView, decisions: Decision[]): Promise<'done' | 'stale'> {
@@ -27,11 +27,9 @@ export async function commitLocal(r: RoundDeps, view: ServerView, decisions: Dec
   );
   await uploader.flush();
 
-  if (r.isStopped()) {
-    throw new Stopped();
-  }
+  r.signal.throwIfAborted();
 
-  const { body, changes } = nextBody(
+  const { body, ops, changes } = nextIndex(
     view,
     deletes.map(d => d.server.path),
     uploaded
@@ -41,7 +39,7 @@ export async function commitLocal(r: RoundDeps, view: ServerView, decisions: Dec
     return 'done';
   }
 
-  const next = await publish(r, uploader, view, body, nextOps(view, body, changes));
+  const next = await publish(r, uploader, view, body, ops);
 
   if (next === 'stale') {
     return 'stale';
@@ -60,6 +58,7 @@ export async function commitLocal(r: RoundDeps, view: ServerView, decisions: Dec
   }
 
   r.state.server = next;
+  r.state.setSeenSeq(next.seq);
   await r.state.flush();
 
   return 'done';
@@ -69,9 +68,7 @@ async function uploadFiles(r: RoundDeps, uploader: Uploader, keys: string[]): Pr
   const uploaded: Rec[] = [];
 
   for (const key of keys) {
-    if (r.isStopped()) {
-      throw new Stopped();
-    }
+    r.signal.throwIfAborted();
 
     let rec = r.state.disk.get(key);
 
@@ -99,7 +96,7 @@ async function uploadFiles(r: RoundDeps, uploader: Uploader, keys: string[]): Pr
   return uploaded;
 }
 
-function nextBody(view: ServerView, deleted: string[], uploaded: Rec[]): { body: IndexBody; changes: Rec[] } {
+function nextIndex(view: ServerView, deleted: string[], uploaded: Rec[]): { body: IndexBody; ops: DeltaBody; changes: Rec[] } {
   const body: IndexBody = { ...view.body };
 
   for (const path of deleted) {
@@ -141,10 +138,7 @@ function nextBody(view: ServerView, deleted: string[], uploaded: Rec[]): { body:
     }
   }
 
-  return { body, changes: respelled.filter(c => !held.has(c.path)) };
-}
-
-function nextOps(view: ServerView, body: IndexBody, changes: Rec[]): DeltaBody {
+  const changes = respelled.filter(c => !held.has(c.path));
   const ops: DeltaBody = { ...view.ops };
 
   for (const path of Object.keys(view.body)) {
@@ -157,11 +151,12 @@ function nextOps(view: ServerView, body: IndexBody, changes: Rec[]): DeltaBody {
     ops[c.path] = c.entry;
   }
 
-  return ops;
+  return { body, ops, changes };
 }
 
 async function publish(r: RoundDeps, uploader: Uploader, view: ServerView, body: IndexBody, ops: DeltaBody): Promise<ServerView | 'stale'> {
-  const { keys, api } = r.ctx;
+  const { keys, api, app } = r.ctx;
+  const seq = view.seq + 1;
 
   if (view.base !== null) {
     const { base, etag } = view;
@@ -169,19 +164,21 @@ async function publish(r: RoundDeps, uploader: Uploader, view: ServerView, body:
     const blobs = Object.fromEntries(Object.entries(headerOf(changed, view.header, r.partSize)).filter(([id]) => base.header[id] === undefined));
 
     if (Object.keys(ops).length <= DELTA_MAX && Object.keys(blobs).length <= DELTA_MAX) {
-      const delta: DeltaFile = { v: 1, base: base.id, blobs, body: await encodeBody(keys, ops) };
+      const payload: DeltaPayload = { seq, ops };
+      const delta: DeltaFile = { v: 1, base: base.id, blobs, body: await encodeBody(keys, { kind: 'delta', app, base: base.id }, payload) };
       const sent = await send(r, uploader, () => api.commitDelta(delta, etag));
 
-      return sent === 'stale' ? 'stale' : serverView(sent.etag, base, blobs, ops);
+      return sent === 'stale' ? 'stale' : serverView(sent.etag, base, blobs, payload);
     }
   }
 
   const base: BaseIndex = { id: toHex(randomBytes(32)), header: headerOf(Object.values(body), view.header, r.partSize), body };
-  const index: IndexFile = { v: 1, blobs: base.header, body: await encodeBody(keys, body) };
-  const delta: DeltaFile = { v: 1, base: base.id, blobs: {}, body: await encodeBody(keys, {}) };
+  const payload: DeltaPayload = { seq, ops: {} };
+  const index: IndexFile = { v: 1, blobs: base.header, body: await encodeBody(keys, { kind: 'index', app, base: base.id }, body) };
+  const delta: DeltaFile = { v: 1, base: base.id, blobs: {}, body: await encodeBody(keys, { kind: 'delta', app, base: base.id }, payload) };
   const sent = await send(r, uploader, () => api.commitCheckpoint(index, delta, view.etag));
 
-  return sent === 'stale' ? 'stale' : serverView(sent.etag, base, {}, {});
+  return sent === 'stale' ? 'stale' : serverView(sent.etag, base, {}, payload);
 }
 
 function headerOf(entries: IndexEntry[], known: Record<string, number>, partSize: number): Record<string, number> {
@@ -199,9 +196,7 @@ function headerOf(entries: IndexEntry[], known: Record<string, number>, partSize
 
 async function send(r: RoundDeps, uploader: Uploader, attempt: () => Promise<CommitResult>): Promise<{ etag: string } | 'stale'> {
   for (let tries = 0; ; tries++) {
-    if (r.isStopped()) {
-      throw new Stopped();
-    }
+    r.signal.throwIfAborted();
 
     const result = await attempt();
 

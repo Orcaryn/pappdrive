@@ -15,7 +15,7 @@ import { SyncError } from '../shared/errors.js';
 import { goneError, serverError, signedOut } from './errors.js';
 import { ApiError, decodeJwt, request, send } from './http.js';
 import { watchIndex } from './index-watch.js';
-import type { FolderApi } from './folder/shared/types.js';
+import type { FolderApi } from './folder/types.js';
 
 const REFRESH_MARGIN_SECONDS = 60;
 
@@ -43,37 +43,35 @@ export function createApi(server: string, read: string[], hooks: ApiHooks) {
   }
 
   function refresh(): Promise<string> {
-    refreshing ??= doRefresh().finally(() => {
+    refreshing ??= (async () => {
+      const sent = refreshToken;
+
+      if (!sent) {
+        throw signedOut();
+      }
+
+      try {
+        const res = await request<RefreshResponse>(server, 'POST', '/auth/refresh', { refreshToken: sent, read } satisfies RefreshRequest);
+
+        if (refreshToken === sent) {
+          accessToken = res.accessToken;
+        }
+
+        return res.accessToken;
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401) {
+          await hooks.onSignedOut();
+
+          throw signedOut('This device was signed out on the server.');
+        }
+
+        return rethrow(e);
+      }
+    })().finally(() => {
       refreshing = null;
     });
 
     return refreshing;
-  }
-
-  async function doRefresh(): Promise<string> {
-    const sent = refreshToken;
-
-    if (!sent) {
-      throw signedOut();
-    }
-
-    try {
-      const res = await request<RefreshResponse>(server, 'POST', '/auth/refresh', { refreshToken: sent, read } satisfies RefreshRequest);
-
-      if (refreshToken === sent) {
-        accessToken = res.accessToken;
-      }
-
-      return res.accessToken;
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) {
-        await hooks.onSignedOut();
-
-        throw signedOut('This device was signed out on the server.');
-      }
-
-      return rethrow(e);
-    }
   }
 
   async function authed<T>(call: (token: string) => Promise<T>): Promise<T> {
@@ -152,7 +150,7 @@ export function createApi(server: string, read: string[], hooks: ApiHooks) {
 
       commitCheckpoint: (index, delta, etag) => translated('/index', token => commit(server, '/index', { index, delta, etag } satisfies CheckpointRequest, token)),
 
-      watchIndex: onChange => watchIndex(`${server.replace(/^http/, 'ws')}${API_PREFIX}/index/watch${q}`, () => authed(async token => token), onChange),
+      watchIndex: check => watchIndex(`${server.replace(/^http/, 'ws')}${API_PREFIX}/index/watch${q}`, () => authed(async token => token), check),
     };
   }
 

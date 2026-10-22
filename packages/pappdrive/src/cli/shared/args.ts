@@ -2,7 +2,7 @@ import { parseArgs as parseArgv } from 'node:util';
 import { APP_NAME_RE } from '@pappdrive/protocol';
 import { CliError } from './errors.js';
 
-export type Command = 'signup' | 'login' | 'logout' | 'apps list' | 'apps create' | 'export' | 'delete-app' | 'delete-account';
+export type Command = 'signup' | 'verify' | 'login' | 'logout' | 'apps list' | 'apps create' | 'export' | 'delete-app' | 'delete-account';
 
 export interface Flags {
   server?: string;
@@ -24,6 +24,7 @@ const OPTIONS = {
 const EXAMPLE: Record<string, string> = { server: 'https://sync.pappdrive.com', email: 'me@example.com', app: 'my-notes' };
 const COMMANDS: Record<Command, { args: string[]; flags: string[] }> = {
   signup: { args: [], flags: ['server', 'email', 'app'] },
+  verify: { args: [], flags: ['server'] },
   login: { args: [], flags: ['server', 'email'] },
   logout: { args: [], flags: ['server'] },
   'apps list': { args: [], flags: ['server', 'email'] },
@@ -118,6 +119,7 @@ export const HELP = `pappdrive: accounts, apps and exports for pappdrive sync.
 
 Usage:
   pappdrive signup [--email <email>] [--app <name>]   create an account (and an app)
+  pappdrive verify                                    confirm the email address with a new code
   pappdrive login [--email <email>]                   sign in on this computer
   pappdrive logout                                    sign out on this computer
   pappdrive apps list                                 the apps in your account

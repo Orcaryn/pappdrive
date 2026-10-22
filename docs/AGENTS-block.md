@@ -15,5 +15,6 @@ This app stores its data with `pappdrive`: one folder of plain files, synced bet
 - Re-read from the folder on `files.watch` changes. Show `files.onStatus`; handle `status.deleted`.
 - Check `SyncError` by `err.code`, not by message.
 - Phones and browsers sync only while the app is open.
+- Native iOS and Android use the same API from the Swift package / Gradle module; other languages on desktop talk to the `pappdrived` child process. Spec: https://github.com/HaMMeRSI/PaPPDrive/blob/main/docs/hosts.md.
 - Never touch the `.pappdrive/` folder.
 ```

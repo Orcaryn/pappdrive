@@ -58,15 +58,16 @@ npx pappdrive apps list                # check
 
 All CLI commands:
 
-| Command                        | Does                                                           |
-| ------------------------------ | -------------------------------------------------------------- |
-| `pappdrive signup`             | Makes an account. Shows the recovery code once                 |
-| `pappdrive login` / `logout`   | Signs the CLI in or out                                        |
-| `pappdrive apps list`          | Lists the user's apps                                          |
-| `pappdrive apps create <name>` | Creates an app                                                 |
-| `pappdrive export <app> <dir>` | Downloads and decrypts the whole folder of an app into `<dir>` |
-| `pappdrive delete-app <name>`  | Deletes one app's folder on every device. Final                |
-| `pappdrive delete-account`     | Deletes everything on every device. Final                      |
+| Command                        | Does                                                                    |
+| ------------------------------ | ----------------------------------------------------------------------- |
+| `pappdrive signup`             | Makes an account. Shows the recovery code once, asks for the email code |
+| `pappdrive verify`             | Sends a new email code and asks for it                                  |
+| `pappdrive login` / `logout`   | Signs the CLI in or out                                                 |
+| `pappdrive apps list`          | Lists the user's apps                                                   |
+| `pappdrive apps create <name>` | Creates an app                                                          |
+| `pappdrive export <app> <dir>` | Downloads and decrypts the whole folder of an app into `<dir>`          |
+| `pappdrive delete-app <name>`  | Deletes one app's folder on every device. Final                         |
+| `pappdrive delete-account`     | Deletes everything on every device. Final                               |
 
 ## 3. Set up: createPapp and ready
 
@@ -78,6 +79,7 @@ const papp = createPapp({
   app: "journal",                     // the app name from step 2
   read: ["my-notes"],                 // optional: other apps' folders this app may read
   // keyStore: { get, set, delete },  // optional: replace where the data key is kept
+  // syncOnBackground: true,          // optional: sync at once when the app leaves; off by default
 })
 await papp.ready  // restores a saved sign-in, if there is one
 
@@ -91,6 +93,11 @@ const files = await papp.open({ mode: "private" }) // section 5
 - `papp.signedIn` is only correct after `await papp.ready`.
 - The password is asked once per device. After that the device keeps the data key: in the system keychain (Mac, Windows, Linux with a keychain), a file only the user can read when no keychain works, as on Linux without one (`~/.config/pappdrive/`, one file per server and app), or IndexedDB (browser). Never inside the app folder.
 - `keyStore` replaces that storage. Interface: `get(name): Promise<string | null>`, `set(name, value): Promise<void>`, `delete(name): Promise<void>`. Values are strings. Store them encrypted. Electron apps can build one on `safeStorage`, see [examples/journal-electron](../examples/journal-electron/keystore.js). Capacitor apps wrap their secure-storage plugin with `capacitorKeyStore(plugin)` from `pappdrive/browser`.
+- `syncOnBackground` (default `false`) syncs pending changes at once when the app leaves, so other devices see them sooner. Without it nothing is lost: changes already written sync on the next timer or the next open. What "leaves" means:
+  - Browser: the page is hidden or unloaded.
+  - Node: `SIGINT`, `SIGTERM` or `beforeExit`. The library installs handlers for these signals and holds the exit up to 10 seconds while it syncs; a second signal exits at once.
+  - iOS (`Pappdrive(..., syncOnBackground: true)`): the app enters the background; the sync runs inside a background task.
+  - Android (`Pappdrive(..., syncOnBackground = true)`): the app's last activity stops.
 
 ## 4. Sign in: the app's own form
 
@@ -102,17 +109,20 @@ await papp.signIn(email, password)
 const { recoveryCode } = await papp.signUp(email, password)
 // show recoveryCode; once the user saved it:
 await papp.confirmRecoveryCode()
+// then ask for the 6-digit code the server emailed:
+await papp.verifyEmail(code)
 // or, forgot the password:
 await papp.recover(email, recoveryCode, newPassword)
 ```
 
 - After sign-up, show the recovery code and make the user save it, for example by typing back its last group. Only then call `confirmRecoveryCode`. Until then `signedIn` is `false` and `open` throws `signed-out`.
 - If the app closes on that screen, `pendingSignUp()` returns `{ email, recoveryCode }` on the next start. Show the same code again.
-- Show errors by `err.code` (section 11): `credentials`, `exists`, `weak-password`, `rate-limited` with `err.retryAfter`, `no-app`, `network`. The message is plain enough to show as is.
+- Sign-up emails a 6-digit code. Nothing uploads until `verifyEmail(code)` succeeds: sync fails with `unverified`. Offer `sendVerificationEmail()` for a new code. A code works for about an hour. If sync reports `unverified` later (the user closed the app before entering the code), show the same code form.
+- Show errors by `err.code` (section 11): `credentials`, `exists`, `weak-password`, `rate-limited` with `err.retryAfter`, `no-app`, `unverified`, `network`. The message is plain enough to show as is.
 - Passwords shorter than 12 characters are refused at sign-up.
 - The password is hashed by library code on the device before anything is sent.
 
-Electron: `papp` runs in the main process, the form in the window. Call these functions through IPC. Errors must cross IPC with their `code` (and `retryAfter`) intact. See [examples/journal-electron](../examples/journal-electron/).
+Electron: `papp` runs in the main process, the form in the window. `pappdrive/rpc` carries the calls and their errors (`code`, `retryAfter`) over IPC. See [examples/journal-electron](../examples/journal-electron/).
 
 Command-line tools: ask for the email and password in the terminal, without echoing the password, and call `papp.signIn`. New users sign up with `pappdrive signup`. See [examples/notes-cli](../examples/notes-cli/).
 
@@ -199,9 +209,9 @@ await files.sync()                          // run a sync round now, and wait fo
 | `error`    | string or null                 | The last round's error, for example offline or server down. The library retries by itself                                                                                                                                         |
 
 - When a folder is deleted elsewhere: a private folder is deleted on this device too. A visible folder stays on disk, because the files belong to the user. If the user signs in again, they upload as new files.
-- A sync runs: on open, within a second of another device's commit while the app is open (the server pushes a hint; a poll every ten seconds covers gaps), and two seconds after the last change (ten at most after the first). When the app goes to the background or closes, it runs at once.
+- A sync runs: on open, within a second of another device's commit while the app is open (the server pushes a hint over a socket; after a reconnect the device checks once), and two seconds after the last change (ten at most after the first). `close()` runs one at once; so does leaving the app, with `syncOnBackground` (section 3).
 - `sync()` rejects with the round's `SyncError` (`network`, `server`, `update-needed`) when the round could not finish. One file that failed to download does not reject: it shows in `status.error` and is fetched again next round.
-- A short-lived program (a CLI command) must `await papp.close()` before it exits. It syncs pending changes and closes the connection that listens for other devices; while that connection is open, a Node process does not exit on its own.
+- A short-lived program (a CLI command) must `await papp.close()` before it exits. It syncs pending changes and closes the connection that listens for other devices; while that connection is open, a Node process does not exit on its own. If that last sync fails, the folders still close and `close()` rejects with an `AggregateError` of the round errors.
 
 ## 9. Reading another app's folder
 
@@ -227,6 +237,8 @@ For the sign-in form (section 4) and the settings screen.
 const { recoveryCode } = await papp.signUp(email, password) // show the code; the user must save it
 await papp.confirmRecoveryCode()                            // after the user saved it; until then signedIn is false
 await papp.pendingSignUp()                                  // { email, recoveryCode } while unconfirmed, else null
+await papp.verifyEmail(code)                                // the 6-digit code from the sign-up email; until then nothing uploads
+await papp.sendVerificationEmail()                          // a new code
 await papp.signIn(email, password)
 await papp.recover(email, recoveryCode, newPassword)        // forgot the password, has the code
 await papp.setPassword(newPassword)                         // signed-in device: change or forgot
@@ -263,15 +275,18 @@ try {
 | `bad-path`      | The path breaks the path rules                                                | Fix the path. Do not pass user input as a path without cleaning it                 |
 | `case-clash`    | `write` with a name that differs from an existing one only in capital letters | Write to the existing spelling, or remove it first                                 |
 | `not-found`     | `read`, `readText` or `remove` of a missing file                              | Treat as empty or already gone                                                     |
+| `changed`       | `readStream` of a file that sync or a write replaced while it was read        | Read it again                                                                      |
 | `read-only`     | `write` or `remove` on a folder opened with `openReadOnly`                    | Do not write there. Write in the app's own folder                                  |
 | `not-allowed`   | `openReadOnly` with a name not in `read`                                      | Add the name to `read` in `createPapp`                                             |
 | `signed-out`    | `open` (or `papp.files`) before sign-in                                       | Show the sign-in form, then open                                                   |
 | `folder-taken`  | `open` on a visible folder that another app uses, or inside or around one     | Choose another folder                                                              |
 | `no-app`        | Sign-in to an app the user has not created                                    | Tell the user to run `pappdrive apps create <name>`. The message names the command |
-| `credentials`   | Wrong email, password or recovery code                                        | Ask again                                                                          |
+| `credentials`   | Wrong email, password, recovery code or email code                            | Ask again                                                                          |
+| `unverified`    | Sync before the email address is confirmed                                    | Show the code form: `verifyEmail(code)`, `sendVerificationEmail()`                 |
+| `over-quota`    | The account's storage is full. New files wait on the device                   | Tell the user: delete files or upgrade the plan. Deleting always syncs             |
 | `exists`        | `signUp` with an email that already has an account                            | Sign in instead                                                                    |
 | `weak-password` | Password shorter than 12 characters                                           | Ask for a longer one                                                               |
-| `rate-limited`  | Too many tries                                                                | Wait `err.retryAfter` seconds                                                      |
+| `rate-limited`  | Too many tries, or too many uploads in a minute                               | Wait `err.retryAfter` seconds. Sync retries by itself                              |
 | `gone`          | The folder or the account was deleted. `err.reason` is `"app"` or `"account"` | Same as `status.deleted`: show sign-in or a message                                |
 | `network`       | No connection, or the server did not answer                                   | Nothing. The data is safe on the device. Sync retries                              |
 | `server`        | The server answered with an unexpected error                                  | Nothing in code. Retry later                                                       |
@@ -350,17 +365,21 @@ todo (conflict 2026-10-17 09-15-30).md
 
 ## 16. Platforms
 
-| Platform          | Adapter                                      | Modes            | Watcher       | Key storage                                |
-| ----------------- | -------------------------------------------- | ---------------- | ------------- | ------------------------------------------ |
-| Node, CLI         | node                                         | visible, private | yes (visible) | system keychain, or `~/.config/pappdrive/` |
-| Electron          | node in the main process; form in the window | visible, private | yes (visible) | keychain, or a `keyStore` on `safeStorage` |
-| Browser           | browser                                      | private (OPFS)   | no            | IndexedDB                                  |
-| Phone (Capacitor) | browser                                      | private          | no            | the phone's secure storage                 |
+| Platform              | Adapter                                      | Modes            | Watcher       | Key storage                                |
+| --------------------- | -------------------------------------------- | ---------------- | ------------- | ------------------------------------------ |
+| Node, CLI             | node                                         | visible, private | yes (visible) | system keychain, or `~/.config/pappdrive/` |
+| Electron              | node in the main process; form in the window | visible, private | yes (visible) | keychain, or a `keyStore` on `safeStorage` |
+| Browser               | browser                                      | private (OPFS)   | no            | IndexedDB                                  |
+| Phone (Capacitor)     | browser                                      | private          | no            | the phone's secure storage                 |
+| iOS native            | Swift package, engine in a hidden web view   | private          | no            | Keychain                                   |
+| Android native        | Kotlin library, engine in a hidden web view  | private          | no            | Android Keystore                           |
+| Desktop, any language | `pappdrived`, a child process                | visible, private | yes (visible) | system keychain, or `~/.config/pappdrive/` |
 
 - **Phones and browsers sync only while the app is open.** No background work. Changes reach other devices the next time the app runs. Tell the user this if it matters.
 - **Browser: one tab syncs.** It holds a lock (Web Locks API). Other tabs of the same app still read and write; their writes go through the tab that syncs. When that tab closes, another takes over.
 - Browsers can clear site storage. The library asks to keep it (`navigator.storage.persist()`). If storage is cleared, the user signs in again and the folder downloads again. Changes not yet uploaded are lost. Safari may clear a site's storage after 7 days without a visit.
-- Electron: run `papp` in the main process (node adapter, visible folder, watcher). The window gets data and the account functions over IPC. Do not create a second `papp` in the window.
+- Electron: run `papp` in the main process (node adapter, visible folder, watcher). The window gets data and the account functions over IPC. Do not create a second `papp` in the window. `pappdrive/rpc` carries the whole API over any message channel: `serve(papp, channel)` in main, `createClient(channel)` in the window.
+- Native iOS, Android and non-JavaScript desktop apps: see [hosts.md](hosts.md). Same engine, same rules, one message envelope.
 
 ## 17. Limits
 
@@ -368,7 +387,8 @@ todo (conflict 2026-10-17 09-15-30).md
 - At most one commit per second per folder. Writes are batched: a burst of saves becomes one commit.
 - The server keeps old versions of the folder: every commit from the last hour (at least the newest five, at most 60), then one per day for seven days. Older versions are gone. There are no backups, and no API reads the old versions yet.
 - No merging inside a file. No queries across files. No share links. Every device stores the whole folder.
-- Not set yet: a storage quota per user and a limit on uploads per hour.
+- Storage per account, across all its apps: Free 1 GB, Plus 50 GB, Pro 500 GB. A commit that would pass the quota fails with `over-quota`; one that frees space always goes through.
+- At most 600 file parts uploaded per minute per account. Past that, sync waits `retryAfter` seconds and goes on by itself.
 
 ## 18. Passwords, export and deletion
 

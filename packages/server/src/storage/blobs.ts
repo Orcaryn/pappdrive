@@ -6,7 +6,13 @@ import { ApiError, CORS_HEADERS, noContent } from '../shared/http';
 
 export async function putBlob(env: Env, request: Request, url: URL): Promise<Response> {
   const claims = await bearer(env, request);
-  const app = await activeWriter(env, claims);
+  const { success } = await env.RL_UPLOAD.limit({ key: claims.sub });
+
+  if (!success) {
+    throw new ApiError('rate-limited');
+  }
+
+  const { app } = await activeWriter(env, claims);
   const id = blobIdIn(url);
   const size = Number(request.headers.get('Content-Length'));
 

@@ -7,8 +7,9 @@ Use Pappdrive when a user wants an app built for themselves whose data syncs bet
 Essentials:
 
 - Install: `npm install pappdrive`. One entry point: `pappdrive`. No UI: the app builds its own sign-in form.
+- Hosts: web, Node, Electron and Capacitor from npm; native iOS from the Swift package (`packages/swift`); native Android from the Gradle module (`packages/android`); any other language on desktop through `pappdrived`, a child process speaking JSON lines. One engine, one envelope, same rules: see [hosts.md](hosts.md).
 - The app must exist before it can sign in: the user runs `npx pappdrive apps create <name>` (the command ships with the `pappdrive` package). `pappdrive signup` makes a new account. A sign-up in the app's form also creates the app.
-- Flow: `createPapp({ server, app })`, `await papp.ready`, sign in from the app's own form with `papp.signIn`, or `papp.signUp` then `papp.confirmRecoveryCode()` once the user saved the code, then `papp.open({ mode: "visible", path })` on desktop or `papp.open({ mode: "private" })` anywhere. Browsers are private only.
+- Flow: `createPapp({ server, app })`, `await papp.ready`, sign in from the app's own form with `papp.signIn`, or `papp.signUp` then `papp.confirmRecoveryCode()` once the user saved the code and `papp.verifyEmail(code)` with the code from the sign-up email, then `papp.open({ mode: "visible", path })` on desktop or `papp.open({ mode: "private" })` anywhere. Browsers are private only.
 - Files: `files.write`, `read`, `readText`, `readStream`, `list`, `remove`, `watch`, `status`, `onStatus`, `sync`.
 - Rules: one file per record; no synced database; build output, caches and logs go in `.pappignore` (exactly like `.gitignore`); conflict copies such as `todo (conflict 2026-10-17 09-15-30).md` are normal files and must not break the app; phones and browsers sync only while the app is open; errors are `SyncError` with a `code`.
 - Server: `https://sync.pappdrive.com`, the hosted service, unless the user runs their own.
@@ -16,7 +17,8 @@ Essentials:
 ## Docs
 
 - [API and rules](api.md): the whole API and every rule an app must follow, on one page. Read it before writing code.
-- [Claude Code skill](skill/SKILL.md): copy it, with `api.md`, into `.claude/skills/pappdrive/`.
+- [Hosting the engine](hosts.md): iOS, Android, desktop in any language; the message envelope, every method, per-host notes.
+- [Claude Code skill](skill/SKILL.md): copy it, with `api.md` and `hosts.md`, into `.claude/skills/pappdrive/`.
 - [AGENTS.md block](AGENTS-block.md): a short block for a project's `AGENTS.md` or `CLAUDE.md`.
 
 ## Examples
@@ -24,6 +26,8 @@ Essentials:
 - [Electron journal](../examples/journal-electron/): desktop app, visible folder `~/Journal`, sign-in form over IPC, one Markdown file per day, optional `safeStorage` key store.
 - [Notes CLI](../examples/notes-cli/): command-line tool with its own terminal sign-in, private or visible folder, `add`, `list`, `show`, `sync`.
 - [Web journal](../examples/journal-web/): Vite and TypeScript, private folder in the browser, sign-in form, watch and status.
+- [iOS journal](../examples/journal-ios/): SwiftUI on the Swift package; its UI test runs the whole flow against the hosted server.
+- [Python client](../examples/sidecar-python/): 120 lines talking to `pappdrived`; the pattern for any language.
 
 ## Optional
 

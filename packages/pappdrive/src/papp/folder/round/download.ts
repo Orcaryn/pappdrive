@@ -1,7 +1,7 @@
 import type { IndexEntry } from '@pappdrive/protocol';
 import { bigFileId, decryptBlob } from '../../../shared/crypto.js';
 import { SyncError } from '../../../shared/errors.js';
-import type { RoundDeps } from './shared/types.js';
+import type { RoundDeps } from './deps.js';
 
 const CONCURRENCY = 3;
 
@@ -51,9 +51,9 @@ export async function downloadAll<J extends { entry: IndexEntry }>(
     for (const [i, part] of entry.parts.entries()) {
       if (i < whole) {
         continue;
-      } else if (r.isStopped()) {
-        throw new SyncError('network', 'Sync stopped during a download. It continues from the last whole part next time.');
       }
+
+      r.signal.throwIfAborted();
 
       await fs.tempAppend(temp, await fetchBlob(part, Math.min(r.partSize, entry.size - i * r.partSize)));
     }
@@ -63,28 +63,22 @@ export async function downloadAll<J extends { entry: IndexEntry }>(
 
   const sameBlob = Map.groupBy(sorted, job => job.entry.id).values();
 
-  const worker = async () => {
-    for (const jobs of sameBlob) {
-      for (const job of jobs) {
-        if (r.isStopped()) {
-          return;
-        }
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, sorted.length) }, async () => {
+      for (const jobs of sameBlob) {
+        for (const job of jobs) {
+          r.signal.throwIfAborted();
 
-        try {
-          const temp = await fetchToTemp(job.entry);
-
-          if (r.isStopped()) {
-            return;
+          try {
+            const temp = await fetchToTemp(job.entry);
+            r.signal.throwIfAborted();
+            await land(job, temp);
+          } catch (e) {
+            // fetch, Web Crypto, node:fs and the File System API reject with Error instances only.
+            onError(job, e as Error);
           }
-
-          await land(job, temp);
-        } catch (e) {
-          // fetch, Web Crypto, node:fs and the File System API reject with Error instances only.
-          onError(job, e as Error);
         }
       }
-    }
-  };
-
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, sorted.length) }, worker));
+    })
+  );
 }

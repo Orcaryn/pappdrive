@@ -63,25 +63,16 @@ export function ignoreRules(files: IgnoreFile[] = []) {
 
     const parent = parentOf(path);
 
-    if (parent !== '' && dirIgnored(parent)) {
-      return true;
+    if (parent !== '') {
+      const cached = dirCache.get(parent);
+      const parentIgnored = cached === undefined ? ignores(parent, true) : cached;
+      dirCache.set(parent, parentIgnored);
+
+      if (parentIgnored) {
+        return true;
+      }
     }
 
-    return ownMatch(path, isDir);
-  }
-
-  function dirIgnored(dir: string): boolean {
-    let ignored = dirCache.get(dir);
-
-    if (ignored === undefined) {
-      ignored = ignores(dir, true);
-      dirCache.set(dir, ignored);
-    }
-
-    return ignored;
-  }
-
-  function ownMatch(path: string, isDir: boolean): boolean {
     const segs = path.split('/');
     const key = path.toLowerCase();
     let ignored = false;
@@ -107,8 +98,17 @@ export function ignoreRules(files: IgnoreFile[] = []) {
   // @parcel/watcher's `ignore` cannot un-ignore and matches globs against whole relative paths, so each folder glob needs a `/**` twin.
   function watcherSkipGlobs(): string[] {
     const globs = ['.git', '**/.git', '**/.git/**', HIDDEN_DIR, `**/${HIDDEN_DIR}`, `**/${HIDDEN_DIR}/**`];
+    const nodeModulesReincluded = levels.some(level => {
+      if (level.negations.length === 0) {
+        return false;
+      }
 
-    if (!nodeModulesReincluded()) {
+      const ig = ignore({ ignorecase: true }).add(level.negations);
+
+      return ['node_modules/', 'a/node_modules/', 'a/b/node_modules/'].some(p => ig.ignores(p));
+    });
+
+    if (!nodeModulesReincluded) {
       globs.push('node_modules', '**/node_modules', '**/node_modules/**');
     }
 
@@ -147,18 +147,6 @@ export function ignoreRules(files: IgnoreFile[] = []) {
     }
 
     return [...new Set(globs)];
-  }
-
-  function nodeModulesReincluded(): boolean {
-    return levels.some(level => {
-      if (level.negations.length === 0) {
-        return false;
-      }
-
-      const ig = ignore({ ignorecase: true }).add(level.negations);
-
-      return ['node_modules/', 'a/node_modules/', 'a/b/node_modules/'].some(p => ig.ignores(p));
-    });
   }
 
   return { ignores, watcherSkipGlobs };

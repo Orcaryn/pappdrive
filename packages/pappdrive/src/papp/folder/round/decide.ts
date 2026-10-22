@@ -1,5 +1,7 @@
-import { baseName } from '../../../shared/paths.js';
-import type { DiskRec, Rec } from '../shared/state.js';
+import { baseName, pathProblem } from '../../../shared/paths.js';
+import type { FsAdapter } from '../../../shared/platform.js';
+import { isHard } from '../scan/ignore.js';
+import { sameVersion, type DiskRec, type Rec, type ServerView } from '../state.js';
 
 export type Decision =
   | { key: string; action: 'download'; disk: DiskRec | undefined; server: Rec }
@@ -11,15 +13,36 @@ export type Decision =
   | { key: string; action: 'forget' };
 
 interface DecideInput {
-  disk: Map<string, DiskRec>;
-  synced: Map<string, Rec>;
-  server: Map<string, Rec>;
+  disk: ReadonlyMap<string, DiskRec>;
+  synced: ReadonlyMap<string, Rec>;
+  server: ReadonlyMap<string, Rec>;
   frozen: Set<string>;
   readOnly: boolean;
 }
 
-export function sameVersion(a: Rec, b: Rec): boolean {
-  return a.entry.id === b.entry.id && baseName(a.path) === baseName(b.path);
+export function frozenKeys(disk: ReadonlyMap<string, DiskRec>, view: ServerView, fs: FsAdapter): { frozen: Set<string>; skipped: string[] } {
+  const frozen = new Set<string>();
+  const skipped: string[] = [];
+
+  for (const [key, d] of disk) {
+    if (d.skipped) {
+      frozen.add(key);
+      skipped.push(d.path);
+    }
+  }
+
+  for (const [key, v] of view.map) {
+    if (frozen.has(key)) {
+      continue;
+    } else if (isHard(v.path)) {
+      frozen.add(key);
+    } else if (pathProblem(v.path) || v.path.split('/').some(seg => !fs.canCreate(seg))) {
+      frozen.add(key);
+      skipped.push(v.path);
+    }
+  }
+
+  return { frozen, skipped: skipped.sort() };
 }
 
 export function decide(input: DecideInput): Decision[] {

@@ -4,7 +4,8 @@ import { SyncError } from '../src/shared/errors.js';
 import { createPappCore } from '../src/papp/index.js';
 import type { KeyStore, Status } from '../src/shared/types.js';
 import type { Platform } from '../src/shared/platform.js';
-import type { Folder, FolderContext } from '../src/papp/folder/shared/types.js';
+import type { Folder, FolderContext } from '../src/papp/folder/types.js';
+import { hashWasmArgon2 } from '../src/shared/argon2.js';
 import { must } from './helpers/must.js';
 
 const opened: { ctx: FolderContext; folder: Folder }[] = [];
@@ -224,6 +225,7 @@ function memoryStore(): KeyStore & { data: Map<string, string> } {
 
 function platform(): Platform & { persist: ReturnType<typeof vi.fn> } {
   return {
+    argon2: hashWasmArgon2,
     openPrivate: vi.fn(async (_u: string, _a: string, readFor?: string) => ({ kind: 'private', readFor }) as never),
     openVisible: vi.fn(async (path: string) => ({ kind: 'visible', path }) as never),
     persist: vi.fn(async () => {}),
@@ -346,7 +348,7 @@ describe('account layer', () => {
     expect(await b.papp.open({ mode: 'private' })).toBe(files);
     await a.papp.deleteAccount(PW);
     expect(a.store.data.size).toBe(0);
-    expect(await must(opened[0]).ctx.checkGone()).toBe('gone');
+    await expect(must(opened[0]).ctx.noticeGone()).resolves.toBeUndefined();
     expect(must(opened[0]).folder.markDeleted).toHaveBeenCalledWith('account');
     expect(b.store.data.size).toBe(0);
     expect(b.papp.signedIn).toBe(false);
@@ -408,6 +410,20 @@ describe('account layer', () => {
     expect(must(opened[0]).folder.close).toHaveBeenCalled();
     expect(papp.signedIn).toBe(true);
     expect(await papp.open({ mode: 'private' })).not.toBe(a);
+  });
+
+  it('close rejects when the last sync fails, and still closes the folder', async () => {
+    startServer();
+    const { papp } = device();
+    await papp.signUp(EMAIL, PW);
+    await papp.confirmRecoveryCode();
+    await papp.open({ mode: 'private' });
+    const { folder } = must(opened[0]);
+    vi.mocked(folder.sync).mockRejectedValueOnce(new SyncError('network', 'The server is unreachable.'));
+    const e = await papp.close().catch((err: unknown) => err);
+    expect(e).toBeInstanceOf(AggregateError);
+    expect((e as AggregateError).errors).toEqual([new SyncError('network', 'The server is unreachable.')]);
+    expect(folder.close).toHaveBeenCalled();
   });
 
   it('signOut logs out, closes folders and deletes the key store entry', async () => {

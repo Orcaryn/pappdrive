@@ -1,9 +1,9 @@
 import { dirKeysOf } from '../../../shared/paths.js';
-import type { ServerView } from '../shared/state.js';
+import type { ServerView } from '../state.js';
 import { deleteHere } from './apply.js';
 import type { Decision } from './decide.js';
-import { conflictCopy, conflictName } from './shared/moves.js';
-import { Stopped, type RoundDeps } from './shared/types.js';
+import { conflictCopy, conflictName } from './moves.js';
+import type { RoundDeps } from './deps.js';
 
 export async function resolveClashes(r: RoundDeps, decisions: Decision[], view: ServerView): Promise<boolean> {
   const uploads = decisions.filter(d => d.action === 'upload');
@@ -34,9 +34,9 @@ export async function resolveClashes(r: RoundDeps, decisions: Decision[], view: 
   const when = new Date();
 
   for (const c of clashes) {
-    if (r.isStopped()) {
-      throw new Stopped();
-    } else if (c.move === 'file') {
+    r.signal.throwIfAborted();
+
+    if (c.move === 'file') {
       await conflictCopy(r, c.file.key, c.file.path);
       continue;
     }

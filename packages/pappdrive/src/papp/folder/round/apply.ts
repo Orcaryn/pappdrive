@@ -1,13 +1,13 @@
 import type { IndexEntry } from '@pappdrive/protocol';
 import { ID_RE } from '@pappdrive/protocol';
 import { dirKeysOf, parentOf, pathKey } from '../../../shared/paths.js';
-import { hashFile } from '../shared/hash.js';
-import type { DiskRec } from '../shared/state.js';
+import { hashFile } from '../hash.js';
+import type { DiskRec } from '../state.js';
 import type { Decision } from './decide.js';
 import { downloadAll } from './download.js';
-import { conflictCopy, moveToConflictCopy, renameLocal } from './shared/moves.js';
-import { folderSpellings, localTarget, respell } from './shared/spelling.js';
-import { Stopped, type RoundDeps } from './shared/types.js';
+import { conflictCopy, moveToConflictCopy, renameLocal } from './moves.js';
+import { folderSpellings, localTarget, respell } from './spelling.js';
+import type { RoundDeps } from './deps.js';
 
 type DeleteHere = Extract<Decision, { action: 'delete-here' }>;
 
@@ -29,9 +29,7 @@ export async function applyServer(r: RoundDeps, decisions: Decision[]): Promise<
   const deletes: DeleteHere[] = [];
 
   for (const dec of decisions) {
-    if (r.isStopped()) {
-      throw new Stopped();
-    }
+    r.signal.throwIfAborted();
 
     const { key } = dec;
 
@@ -92,9 +90,7 @@ export async function applyServer(r: RoundDeps, decisions: Decision[]): Promise<
       }
     );
 
-    if (r.isStopped()) {
-      throw new Stopped();
-    }
+    r.signal.throwIfAborted();
   };
 
   const blocked = blockedChecker(r);
@@ -157,9 +153,7 @@ async function adopt(r: RoundDeps, key: string, path: string, entry: IndexEntry,
 async function land(r: RoundDeps, j: Job, temp: string): Promise<void> {
   const { fs, keys } = r.ctx;
   await r.withLock(j.key, async () => {
-    if (r.isStopped()) {
-      throw new Stopped();
-    }
+    r.signal.throwIfAborted();
 
     const live = r.state.disk.get(j.key);
     const here =
@@ -205,9 +199,7 @@ export async function deleteHere(r: RoundDeps, dec: DeleteHere, emptied: Set<str
   const { fs, keys } = r.ctx;
   const expected = dec.disk;
   await r.withLock(dec.key, async () => {
-    if (r.isStopped()) {
-      throw new Stopped();
-    }
+    r.signal.throwIfAborted();
 
     const live = r.state.disk.get(dec.key);
 

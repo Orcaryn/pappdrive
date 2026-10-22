@@ -36,23 +36,19 @@ export async function send(
     throw new ApiError(0, 'network');
   });
 
-  if (!res.ok && !init.accept?.includes(res.status)) {
-    throw await apiError(res);
+  if (res.ok || init.accept?.includes(res.status)) {
+    return res;
   }
 
-  return res;
-}
-
-async function apiError(res: Response): Promise<ApiError> {
   const err = (await res.json().catch(() => null)) as Partial<ErrorBody> | null;
 
   if (!err?.error) {
-    return new ApiError(res.status, 'server');
+    throw new ApiError(res.status, 'server');
   }
 
   const retryAfter = res.headers.get('retry-after');
 
-  return new ApiError(res.status, err.error, { missing: err.missing, reason: err.reason, retryAfter: retryAfter === null ? undefined : Number(retryAfter) });
+  throw new ApiError(res.status, err.error, { missing: err.missing, reason: err.reason, retryAfter: retryAfter === null ? undefined : Number(retryAfter) });
 }
 
 export async function request<T>(server: string, method: string, path: string, body?: unknown, token?: string): Promise<T> {

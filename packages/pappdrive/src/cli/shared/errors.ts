@@ -17,9 +17,11 @@ export function describeError(e: unknown, server: string, during?: Command | 're
       case 'network':
         return `Could not reach ${server}. Check the address (--server) and the connection, then try again.`;
       case 'credentials':
-        return during === 'recover' ?
-            'Wrong email or recovery code. Check both against your saved copy and try again.'
-          : 'Wrong email or password. Try again. If you forgot the password, `pappdrive export <app> <dir> --recovery` still works with the recovery code.';
+        return (
+          during === 'recover' ? 'Wrong email or recovery code. Check both against your saved copy and try again.'
+          : during === 'verify' || during === 'signup' ? 'Wrong or expired code. Run `pappdrive verify` to get a new one.'
+          : 'Wrong email or password. Try again. If you forgot the password, `pappdrive export <app> <dir> --recovery` still works with the recovery code.'
+        );
       case 'expired':
         return 'Your sign-in on this computer has ended. Run `pappdrive login`, then the command again.';
       case 'rate-limited':
@@ -32,6 +34,10 @@ export function describeError(e: unknown, server: string, during?: Command | 're
         return `There is no app named "${app}" in this account. See your apps with \`pappdrive apps list\`, or create it with \`pappdrive apps create ${app}\`.`;
       case 'gone':
         return e.reason === 'account' ? 'This account was deleted. Create a new one with `pappdrive signup`.' : "The app's folder was deleted.";
+      case 'unverified':
+        return 'The email address is not confirmed yet. Run `pappdrive verify`.';
+      case 'over-quota':
+        return "The account's storage is full. Delete files, or upgrade the plan at https://pappdrive.com.";
       case 'not-allowed':
         return 'The server did not allow this with the current sign-in. Run `pappdrive login`, then the command again.';
       case 'bad-request':

@@ -16,11 +16,13 @@ const workspaceRules = [
 const pappdriveRules =
   isPappdrive ?
     [
-      { name: 'shared-does-not-import-the-library', severity: 'error', from: { path: '^src/shared/' }, to: { path: '^src/(papp|node|browser)/' } },
-      { name: 'papp-does-not-import-platforms', severity: 'error', from: { path: '^src/papp/' }, to: { path: '^src/(node|browser)/' } },
-      { name: 'node-does-not-import-browser', severity: 'error', from: { path: '^src/node/' }, to: { path: '^src/browser/' } },
-      { name: 'browser-does-not-import-node', severity: 'error', from: { path: '^src/browser/' }, to: { path: '^src/node/' } },
-      { name: 'library-does-not-import-cli', severity: 'error', from: { path: '^src/(papp|shared|node|browser)/' }, to: { path: '^src/cli/' } },
+      { name: 'shared-does-not-import-the-library', severity: 'error', from: { path: '^src/shared/' }, to: { path: '^src/(papp|node|browser|rpc|embedded)/' } },
+      { name: 'papp-does-not-import-platforms', severity: 'error', from: { path: '^src/papp/' }, to: { path: '^src/(node|browser|rpc|embedded)/' } },
+      { name: 'rpc-imports-only-shared', severity: 'error', from: { path: '^src/rpc/' }, to: { path: '^src/(papp|node|browser|embedded)/' } },
+      { name: 'node-does-not-import-browser', severity: 'error', from: { path: '^src/node/' }, to: { path: '^src/(browser|embedded)/' } },
+      { name: 'browser-does-not-import-node', severity: 'error', from: { path: '^src/browser/' }, to: { path: '^src/(node|embedded)/' } },
+      { name: 'embedded-does-not-import-node', severity: 'error', from: { path: '^src/embedded/' }, to: { path: '^src/node/' } },
+      { name: 'library-does-not-import-cli', severity: 'error', from: { path: '^src/(papp|shared|node|browser|rpc|embedded)/' }, to: { path: '^src/cli/' } },
       { name: 'cli-does-not-import-browser', severity: 'error', from: { path: '^src/cli/' }, to: { path: '^src/browser/' } },
     ]
   : [];

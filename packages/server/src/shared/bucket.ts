@@ -8,9 +8,9 @@ export const keys = {
 };
 
 export interface FolderBucket {
-  get(key: string): Promise<{ httpEtag: string; text(): Promise<string> } | null>;
+  get(key: string): Promise<{ httpEtag: string; customMetadata?: Record<string, string>; text(): Promise<string> } | null>;
   head(key: string): Promise<{ size: number } | null>;
-  put(key: string, value: string, options?: { onlyIf?: Headers }): Promise<{ httpEtag: string } | null>;
+  put(key: string, value: string, options?: { onlyIf?: Headers; customMetadata?: Record<string, string> }): Promise<{ httpEtag: string } | null>;
   list(options: { prefix: string; cursor?: string; limit: number }): Promise<ListPage>;
   delete(keys: string | string[]): Promise<void>;
 }

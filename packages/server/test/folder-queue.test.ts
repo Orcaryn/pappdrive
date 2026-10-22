@@ -14,9 +14,10 @@ const dlt = (b: string, blobs: Record<string, number>, body = 'd'): DeltaFile =>
 const blobKey = (n: number) => keys.blob(f.user, f.app, id(n));
 const deltaKey = keys.delta(f.user, f.app);
 const DAY_MS = 24 * 3600_000;
+const ROOM = Number.MAX_SAFE_INTEGER;
 
 async function checkpointed(b: FakeBucket, index: IndexFile, baseId: string, etag: string | null, nowMs?: number): Promise<string> {
-  const r = await commitCheckpoint(b, f, index, dlt(baseId, {}), etag, nowMs);
+  const r = await commitCheckpoint(b, f, index, dlt(baseId, {}), etag, ROOM, nowMs);
 
   if (!r.ok) {
     throw new Error(`checkpoint failed: ${r.error}`);
@@ -26,7 +27,7 @@ async function checkpointed(b: FakeBucket, index: IndexFile, baseId: string, eta
 }
 
 async function deltaCommitted(b: FakeBucket, delta: DeltaFile, etag: string): Promise<string> {
-  const r = await commitDelta(b, f, delta, etag);
+  const r = await commitDelta(b, f, delta, etag, ROOM);
 
   if (!r.ok) {
     throw new Error(`delta commit failed: ${r.error}`);
@@ -46,17 +47,17 @@ describe('commitCheckpoint', () => {
 
   it('is stale when a delta exists and etag is null, when the etag differs, or when no delta exists but an etag is sent', async () => {
     const b = createFakeBucket();
-    expect(await commitCheckpoint(b, f, idx({}), dlt(base(1), {}), '"x"')).toEqual({ ok: false, error: 'stale' });
+    expect(await commitCheckpoint(b, f, idx({}), dlt(base(1), {}), '"x"', ROOM)).toEqual({ ok: false, error: 'stale' });
     await checkpointed(b, idx({}), base(1), null);
-    expect(await commitCheckpoint(b, f, idx({}), dlt(base(2), {}), null)).toEqual({ ok: false, error: 'stale' });
-    expect(await commitCheckpoint(b, f, idx({}), dlt(base(2), {}), '"nope"')).toEqual({ ok: false, error: 'stale' });
+    expect(await commitCheckpoint(b, f, idx({}), dlt(base(2), {}), null, ROOM)).toEqual({ ok: false, error: 'stale' });
+    expect(await commitCheckpoint(b, f, idx({}), dlt(base(2), {}), '"nope"', ROOM)).toEqual({ ok: false, error: 'stale' });
   });
 
   it('refuses new ids that are missing or have the wrong size', async () => {
     const b = createFakeBucket();
     b.blob(blobKey(1), 100);
     b.blob(blobKey(2), 99);
-    const r = await commitCheckpoint(b, f, idx({ [id(1)]: 100, [id(2)]: 100, [id(3)]: 5 }), dlt(base(1), {}), null);
+    const r = await commitCheckpoint(b, f, idx({ [id(1)]: 100, [id(2)]: 100, [id(3)]: 5 }), dlt(base(1), {}), null, ROOM);
     expect(r).toEqual({ ok: false, error: 'missing', missing: [id(2), id(3)] });
     expect(b.objects.has(deltaKey)).toBe(false);
     expect(b.objects.has(keys.index(f.user, f.app, base(1)))).toBe(false);
@@ -69,10 +70,10 @@ describe('commitCheckpoint', () => {
     let etag = await checkpointed(b, idx({ [id(1)]: 100 }), base(1), null);
     etag = await deltaCommitted(b, dlt(base(1), { [id(2)]: 50 }), etag);
     b.calls.head = 0;
-    expect(await commitCheckpoint(b, f, idx({ [id(1)]: 100, [id(2)]: 50 }), dlt(base(2), {}), etag)).toMatchObject({ ok: true });
+    expect(await commitCheckpoint(b, f, idx({ [id(1)]: 100, [id(2)]: 50 }), dlt(base(2), {}), etag, ROOM)).toMatchObject({ ok: true });
     expect(b.calls.head).toBe(0);
     const etag2 = (b.objects.get(deltaKey) as { etag: string }).etag;
-    expect(await commitCheckpoint(b, f, idx({ [id(1)]: 101 }), dlt(base(3), {}), etag2)).toEqual({ ok: false, error: 'missing', missing: [id(1)] });
+    expect(await commitCheckpoint(b, f, idx({ [id(1)]: 101 }), dlt(base(3), {}), etag2, ROOM)).toEqual({ ok: false, error: 'missing', missing: [id(1)] });
     expect(b.calls.head).toBe(0);
   });
 
@@ -90,7 +91,7 @@ describe('commitCheckpoint', () => {
       return o;
     };
 
-    expect(await commitCheckpoint(b, f, idx({}, 'mine'), dlt(base(2), {}), etag)).toEqual({ ok: false, error: 'stale' });
+    expect(await commitCheckpoint(b, f, idx({}, 'mine'), dlt(base(2), {}), etag, ROOM)).toEqual({ ok: false, error: 'stale' });
   });
 
   it('thins older indexes but never the one the delta points at', async () => {
@@ -128,10 +129,10 @@ describe('commitDelta', () => {
 
   it('is stale without a delta, with the wrong etag, or with another base', async () => {
     const b = createFakeBucket();
-    expect(await commitDelta(b, f, dlt(base(1), {}), '"x"')).toEqual({ ok: false, error: 'stale' });
+    expect(await commitDelta(b, f, dlt(base(1), {}), '"x"', ROOM)).toEqual({ ok: false, error: 'stale' });
     const etag = await checkpointed(b, idx({}), base(1), null);
-    expect(await commitDelta(b, f, dlt(base(1), {}), '"nope"')).toEqual({ ok: false, error: 'stale' });
-    expect(await commitDelta(b, f, dlt(base(2), {}), etag)).toEqual({ ok: false, error: 'stale' });
+    expect(await commitDelta(b, f, dlt(base(1), {}), '"nope"', ROOM)).toEqual({ ok: false, error: 'stale' });
+    expect(await commitDelta(b, f, dlt(base(2), {}), etag, ROOM)).toEqual({ ok: false, error: 'stale' });
   });
 
   it('refuses new ids that are missing, and kept ids whose size changed', async () => {
@@ -139,7 +140,36 @@ describe('commitDelta', () => {
     b.blob(blobKey(2), 50);
     let etag = await checkpointed(b, idx({}), base(1), null);
     etag = await deltaCommitted(b, dlt(base(1), { [id(2)]: 50 }), etag);
-    expect(await commitDelta(b, f, dlt(base(1), { [id(2)]: 51, [id(3)]: 1 }), etag)).toEqual({ ok: false, error: 'missing', missing: [id(2), id(3)] });
+    expect(await commitDelta(b, f, dlt(base(1), { [id(2)]: 51, [id(3)]: 1 }), etag, ROOM)).toEqual({ ok: false, error: 'missing', missing: [id(2), id(3)] });
+  });
+});
+
+describe('quota', () => {
+  it('reports the folder size: the base index plus the delta', async () => {
+    const b = createFakeBucket();
+    b.blob(blobKey(1), 100);
+    b.blob(blobKey(2), 50);
+    const first = await commitCheckpoint(b, f, idx({ [id(1)]: 100 }), dlt(base(1), {}), null, ROOM);
+    expect(first).toMatchObject({ ok: true, bytes: 100 });
+    expect(await commitDelta(b, f, dlt(base(1), { [id(2)]: 50 }), (first as { etag: string }).etag, ROOM)).toMatchObject({ ok: true, bytes: 150 });
+  });
+
+  it('refuses a commit that grows the folder past the room, before asking R2', async () => {
+    const b = createFakeBucket();
+    b.blob(blobKey(1), 100);
+    const etag = await checkpointed(b, idx({}), base(1), null);
+    b.calls.head = 0;
+    expect(await commitDelta(b, f, dlt(base(1), { [id(1)]: 100 }), etag, 99)).toEqual({ ok: false, error: 'over-quota' });
+    expect(await commitCheckpoint(b, f, idx({ [id(1)]: 100 }), dlt(base(2), {}), etag, 99)).toEqual({ ok: false, error: 'over-quota' });
+    expect(b.calls.head).toBe(0);
+  });
+
+  it('lets a folder already over the room shrink', async () => {
+    const b = createFakeBucket();
+    b.blob(blobKey(1), 100);
+    b.blob(blobKey(2), 50);
+    const etag = await checkpointed(b, idx({ [id(1)]: 100, [id(2)]: 50 }), base(1), null);
+    expect(await commitCheckpoint(b, f, idx({ [id(2)]: 50 }), dlt(base(2), {}), etag, 10)).toMatchObject({ ok: true, bytes: 50 });
   });
 });
 
