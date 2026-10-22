@@ -8,7 +8,6 @@ import {
   type CheckpointRequest,
   type DeltaCommitRequest,
   type DeltaFile,
-  type IndexFile,
 } from '@pappdrive/protocol';
 import { fromBase64 } from './bytes';
 import { ApiError } from './http';
@@ -108,7 +107,13 @@ export function checkpointCommit(v: unknown): CheckpointRequest {
     throw new ApiError('bad-request');
   }
 
-  return { index: indexFile(o.index), delta, etag: etagOf(o.etag) };
+  const index = obj(o.index);
+
+  if (index.v !== 1 || typeof index.body !== 'string') {
+    throw new ApiError('bad-request');
+  }
+
+  return { index: { v: 1, blobs: header(index.blobs), body: index.body }, delta, etag: etagOf(o.etag) };
 }
 
 function etagOf(v: unknown): string | null {
@@ -117,16 +122,6 @@ function etagOf(v: unknown): string | null {
   }
 
   return v;
-}
-
-function indexFile(v: unknown): IndexFile {
-  const o = obj(v);
-
-  if (o.v !== 1 || typeof o.body !== 'string') {
-    throw new ApiError('bad-request');
-  }
-
-  return { v: 1, blobs: header(o.blobs), body: o.body };
 }
 
 function deltaFile(v: unknown): DeltaFile {
@@ -142,8 +137,16 @@ function deltaFile(v: unknown): DeltaFile {
 function header(v: unknown): Record<string, number> {
   const blobs: Record<string, number> = {};
 
-  for (const [id, size] of Object.entries(obj(v))) {
-    blobs[blobId(id)] = blobSize(size);
+  for (const [key, size] of Object.entries(obj(v))) {
+    const id = blobId(key);
+
+    if (typeof size !== 'number' || !Number.isSafeInteger(size) || size < 0) {
+      throw new ApiError('bad-request');
+    } else if (size > MAX_BLOB_SIZE) {
+      throw new ApiError('too-big');
+    }
+
+    blobs[id] = size;
   }
 
   return blobs;
@@ -174,16 +177,6 @@ export function argon2Params(v: unknown): Argon2Params {
 function blobId(v: unknown): string {
   if (typeof v !== 'string' || !ID_RE.test(v)) {
     throw new ApiError('bad-request');
-  }
-
-  return v;
-}
-
-function blobSize(v: unknown): number {
-  if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < 0) {
-    throw new ApiError('bad-request');
-  } else if (v > MAX_BLOB_SIZE) {
-    throw new ApiError('too-big');
   }
 
   return v;

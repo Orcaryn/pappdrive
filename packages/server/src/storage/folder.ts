@@ -1,5 +1,6 @@
-import { API_PREFIX, ID_RE, type CommitResponse, type CommitResult } from '@pappdrive/protocol';
+import { API_PREFIX, ID_RE, type CommitResponse } from '@pappdrive/protocol';
 import { activeWriter, bearer, readableApp, watchBearer } from '../shared/access';
+import type { FolderCommit } from '../folder-queue/commit';
 import { keys } from '../shared/bucket';
 import type { Env } from '../shared/env';
 import { ApiError, CORS_HEADERS, json } from '../shared/http';
@@ -53,24 +54,26 @@ export async function watchFolder(env: Env, request: Request, url: URL): Promise
 export async function commitDelta(env: Env, request: Request): Promise<Response> {
   const claims = await bearer(env, request);
   const { delta, etag } = v.deltaCommit(await v.body(request));
-  const app = await activeWriter(env, claims);
+  const { app, room } = await activeWriter(env, claims);
 
-  return commitResponse(await env.FOLDER.getByName(`${claims.sub}/${app}`).commitDelta(delta, etag));
+  return commitResponse(await env.FOLDER.getByName(`${claims.sub}/${app}`).commitDelta(delta, etag, room));
 }
 
 export async function commitCheckpoint(env: Env, request: Request): Promise<Response> {
   const claims = await bearer(env, request);
   const { index, delta, etag } = v.checkpointCommit(await v.body(request));
-  const app = await activeWriter(env, claims);
+  const { app, room } = await activeWriter(env, claims);
 
-  return commitResponse(await env.FOLDER.getByName(`${claims.sub}/${app}`).commitCheckpoint(index, delta, etag));
+  return commitResponse(await env.FOLDER.getByName(`${claims.sub}/${app}`).commitCheckpoint(index, delta, etag, room));
 }
 
-function commitResponse(result: CommitResult): Response {
+function commitResponse(result: FolderCommit): Response {
   if (result.ok) {
     return json({ etag: result.etag } satisfies CommitResponse);
   } else if (result.error === 'missing') {
     throw new ApiError('missing', { missing: result.missing });
+  } else if (result.error === 'over-quota') {
+    throw new ApiError('over-quota');
   }
 
   throw new ApiError('stale');

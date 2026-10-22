@@ -1,14 +1,24 @@
 import { createHash } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
-import type { AccessClaims } from '@pappdrive/protocol';
-import { checkCredentials, type UserRow } from '../src/account/credentials';
-import { activeWriter, type InstallRow } from '../src/shared/access';
+import { drizzle } from 'drizzle-orm/d1';
+import { migrate } from 'drizzle-orm/d1/migrator';
+import { Miniflare } from 'miniflare';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { checkCredentials } from '../src/account/credentials';
+import { activeWriter } from '../src/shared/access';
 import { ACCESS_TOKEN_SECONDS, signToken, verifyToken } from '../src/shared/tokens';
 import { ApiError, errorResponse } from '../src/shared/http';
 import type { Env } from '../src/shared/env';
+import { installs, users } from '../src/shared/schema';
 
-function env(found: UserRow | InstallRow | null): Env {
-  return { DB: { prepare: () => ({ bind: () => ({ first: async () => found }) }) } } as unknown as Env;
+const mf = new Miniflare({ modules: true, script: 'export default {}', d1Databases: ['DB'] });
+const env = { DB: await mf.getD1Database('DB') } as Env;
+const d = drizzle(env.DB);
+
+beforeAll(() => migrate(d, { migrationsFolder: 'migrations' }));
+afterAll(() => mf.dispose());
+
+function user(id: string, over: Partial<typeof users.$inferInsert> = {}) {
+  return d.insert(users).values({ id, email: `${id}@b.c`, loginHash: 'h', recoveryHash: 'h', m: 1, t: 1, p: 1, verified: 1, created: 0, ...over });
 }
 
 async function thrown(fn: () => unknown): Promise<ApiError> {
@@ -26,35 +36,39 @@ async function thrown(fn: () => unknown): Promise<ApiError> {
 }
 
 describe('activeWriter (upload links and commits)', () => {
-  const claims = { sub: 'u1', app: 'notes', install: 'i1', read: [], exp: 0 };
-  const row = (over: Partial<InstallRow> = {}): InstallRow => ({ id: 'i1', user_id: 'u1', app: 'notes', refresh_hash: 'h', read: '[]', stopped: null, ...over });
-  const writerFor = (c: AccessClaims, found: InstallRow | null) => activeWriter(env(found), c);
+  const writerFor = async (id: string, over: Partial<typeof installs.$inferInsert> = {}) => {
+    await user(id);
+    await d.insert(installs).values({ id, userId: id, app: 'notes', refreshHash: id, read: [], created: 0, ...over });
+
+    return activeWriter(env, { sub: id, app: 'notes', install: id, read: [], exp: 0 });
+  };
 
   it('answers 410 gone with the reason when a deletion stopped the install', async () => {
     for (const reason of ['app', 'account'] as const) {
-      const res = errorResponse(await thrown(() => writerFor(claims, row({ stopped: reason }))));
+      const res = errorResponse(await thrown(() => writerFor(`gone-${reason}`, { stopped: reason })));
       expect(res.status).toBe(410);
       expect(await res.json()).toEqual({ error: 'gone', reason });
     }
   });
 
   it('410 wins over a signed-out refresh token', async () => {
-    expect((await thrown(() => writerFor(claims, row({ stopped: 'app', refresh_hash: null })))).word).toBe('gone');
+    expect((await thrown(() => writerFor('gone-signed-out', { stopped: 'app', refreshHash: null }))).word).toBe('gone');
   });
 
   it('answers 401 expired after sign-out or for an unknown install', async () => {
-    expect((await thrown(() => writerFor(claims, row({ refresh_hash: null })))).word).toBe('expired');
-    expect((await thrown(() => writerFor(claims, null))).word).toBe('expired');
+    expect((await thrown(() => writerFor('signed-out', { refreshHash: null }))).word).toBe('expired');
+    expect((await thrown(() => activeWriter(env, { sub: 'nobody', app: 'notes', install: 'nobody', read: [], exp: 0 }))).word).toBe('expired');
   });
 });
 
 describe('checkCredentials', () => {
   const key = new Uint8Array(32).fill(7);
-  const user = { id: 'u1', login_hash: createHash('sha256').update(key).digest('hex') } as UserRow;
 
   it('answers 401 credentials for a wrong key or an unknown email', async () => {
-    expect((await thrown(() => checkCredentials(env(user), 'a@b.c', new Uint8Array(32), 'login_hash'))).word).toBe('credentials');
-    expect((await thrown(() => checkCredentials(env(null), 'a@b.c', key, 'login_hash'))).word).toBe('credentials');
+    await user('cred', { loginHash: createHash('sha256').update(key).digest('hex') });
+    expect((await thrown(() => checkCredentials(env, 'cred@b.c', new Uint8Array(32), 'loginHash'))).word).toBe('credentials');
+    expect((await thrown(() => checkCredentials(env, 'nobody@b.c', key, 'loginHash'))).word).toBe('credentials');
+    expect((await checkCredentials(env, 'cred@b.c', key, 'loginHash')).id).toBe('cred');
   });
 });
 

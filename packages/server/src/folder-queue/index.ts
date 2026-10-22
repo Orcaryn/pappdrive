@@ -1,8 +1,11 @@
 import { DurableObject } from 'cloudflare:workers';
-import { WATCH_PROTOCOL, type CommitResult, type DeltaFile, type IndexFile } from '@pappdrive/protocol';
+import { WATCH_PROTOCOL, type DeltaFile, type IndexFile } from '@pappdrive/protocol';
+import { and, eq } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/d1';
 import type { Folder } from '../shared/bucket';
 import type { Env } from '../shared/env';
-import { commitCheckpoint, commitDelta } from './commit';
+import { apps } from '../shared/schema';
+import { commitCheckpoint, commitDelta, type FolderCommit } from './commit';
 import { createSerialQueue } from './serial-queue';
 import { deleteFolder, sweep } from './sweep';
 
@@ -24,18 +27,24 @@ export class FolderQueue extends DurableObject<Env> {
     return { user: name.slice(0, slash), app: name.slice(slash + 1) };
   }
 
-  async commitDelta(delta: DeltaFile, etag: string): Promise<CommitResult> {
-    return this.serial(async () => this.announce(await commitDelta(this.env.BUCKET, this.folder, delta, etag)));
+  async commitDelta(delta: DeltaFile, etag: string, room: number): Promise<FolderCommit> {
+    return this.serial(async () => this.announce(await commitDelta(this.env.BUCKET, this.folder, delta, etag, room)));
   }
 
-  async commitCheckpoint(index: IndexFile, delta: DeltaFile, etag: string | null): Promise<CommitResult> {
-    return this.serial(async () => this.announce(await commitCheckpoint(this.env.BUCKET, this.folder, index, delta, etag)));
+  async commitCheckpoint(index: IndexFile, delta: DeltaFile, etag: string | null, room: number): Promise<FolderCommit> {
+    return this.serial(async () => this.announce(await commitCheckpoint(this.env.BUCKET, this.folder, index, delta, etag, room)));
   }
 
-  private async announce(result: CommitResult): Promise<CommitResult> {
+  private async announce(result: FolderCommit): Promise<FolderCommit> {
     if (!result.ok) {
       return result;
     }
+
+    const { user, app } = this.folder;
+    await drizzle(this.env.DB)
+      .update(apps)
+      .set({ bytes: result.bytes })
+      .where(and(eq(apps.userId, user), eq(apps.name, app)));
 
     for (const ws of this.ctx.getWebSockets()) {
       ws.send(result.etag);

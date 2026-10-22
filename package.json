@@ -15,7 +15,8 @@
     "architecture:pappdrive": "node scripts/check-architecture.mjs packages/pappdrive",
     "architecture:protocol": "node scripts/check-architecture.mjs packages/protocol",
     "architecture:server": "node scripts/check-architecture.mjs packages/server",
-    "verify": "node scripts/run-checks.mjs typecheck test architecture:pappdrive architecture:protocol architecture:server",
+    "bundle:check": "pnpm --filter pappdrive build && git diff --exit-code HEAD -- packages/swift/Sources/Pappdrive/Resources/pappdrive.js packages/android/pappdrive/src/main/assets/pappdrive.js",
+    "verify": "node scripts/run-checks.mjs typecheck test architecture:pappdrive architecture:protocol architecture:server bundle:check",
     "polish": "node scripts/run-checks.mjs format:check lint knip",
     "quality": "node scripts/run-checks.mjs verify polish"
   },

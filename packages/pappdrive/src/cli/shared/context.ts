@@ -32,7 +32,23 @@ export async function createCtx(flags: Flags): Promise<Ctx> {
     throw e;
   });
   const config = JSON.parse(configText) as CliConfig;
-  const server = resolveServer(flags.server, process.env.PAPPDRIVE_SERVER, config.server);
+  const raw = flags.server || process.env.PAPPDRIVE_SERVER || config.server;
+
+  if (!raw) {
+    throw new CliError('Which server? Pass --server https://sync.pappdrive.com, or set PAPPDRIVE_SERVER. After the first signup or login it is remembered.', 2);
+  } else if (!URL.canParse(raw.trim())) {
+    throw new CliError(`"${raw}" is not a server address. Give the full address, like --server https://sync.pappdrive.com.`, 2);
+  }
+
+  const url = new URL(raw.trim());
+
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new CliError(`"${raw}" is not an http or https address. Use --server https://sync.pappdrive.com.`, 2);
+  }
+
+  url.search = '';
+  url.hash = '';
+  const server = url.toString().replace(/\/+$/, '').replace(/\/v1$/, '');
   let statusShown = false;
 
   return {
@@ -67,25 +83,4 @@ export async function remember(ctx: Ctx, email: string): Promise<void> {
     .mkdir(configDir(), { recursive: true, mode: 0o700 })
     .then(() => fsp.writeFile(join(configDir(), 'cli.json'), JSON.stringify(config, null, 2) + '\n', { mode: 0o600 }))
     .catch((e: unknown) => ctx.out(`Could not save the server and email for next time (${String(e)}). Pass --server and --email next time.`));
-}
-
-function resolveServer(flag: string | undefined, env: string | undefined, saved: string | undefined): string {
-  const raw = flag || env || saved;
-
-  if (!raw) {
-    throw new CliError('Which server? Pass --server https://sync.pappdrive.com, or set PAPPDRIVE_SERVER. After the first signup or login it is remembered.', 2);
-  } else if (!URL.canParse(raw.trim())) {
-    throw new CliError(`"${raw}" is not a server address. Give the full address, like --server https://sync.pappdrive.com.`, 2);
-  }
-
-  const url = new URL(raw.trim());
-
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-    throw new CliError(`"${raw}" is not an http or https address. Use --server https://sync.pappdrive.com.`, 2);
-  }
-
-  url.search = '';
-  url.hash = '';
-
-  return url.toString().replace(/\/+$/, '').replace(/\/v1$/, '');
 }

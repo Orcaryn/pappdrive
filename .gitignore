@@ -7,3 +7,12 @@ dist/
 *.log
 .DS_Store
 packages/pappdrive/docs/
+.build/
+.gradle/
+build/
+.swiftpm/
+examples/journal-ios/Journal.xcodeproj/
+packages/android/local.properties
+*.bun-build
+__pycache__/
+.kotlin/

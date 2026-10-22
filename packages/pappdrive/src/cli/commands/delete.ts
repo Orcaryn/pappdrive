@@ -1,4 +1,5 @@
 import { deleteAccountWithPassword, deleteAppWithPassword } from '../../papp/account.js';
+import { hashWasmArgon2 } from '../../shared/argon2.js';
 import { CliError } from '../shared/errors.js';
 import type { Ctx } from '../shared/context.js';
 import { askEmail, withPassword } from '../shared/sign-in.js';
@@ -19,7 +20,7 @@ export async function deleteApp(ctx: Ctx, name: string): Promise<void> {
   }
 
   const email = await askEmail(ctx);
-  await withPassword(ctx, pw => deleteAppWithPassword(ctx.server, email, pw, name));
+  await withPassword(ctx, pw => deleteAppWithPassword(ctx.server, hashWasmArgon2, email, pw, name));
   ctx.out(`Deleted the app "${name}". Its name is free again.`);
 }
 
@@ -39,7 +40,7 @@ export async function deleteAccount(ctx: Ctx): Promise<void> {
     throw new CliError('The words did not match. Nothing was deleted.');
   }
 
-  await withPassword(ctx, pw => deleteAccountWithPassword(ctx.server, email, pw));
+  await withPassword(ctx, pw => deleteAccountWithPassword(ctx.server, hashWasmArgon2, email, pw));
   await ctx.keyStore.delete(ctx.sessionName);
   ctx.out(`Deleted the account ${email} and all of its apps.`);
 }

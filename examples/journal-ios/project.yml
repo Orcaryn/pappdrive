@@ -1,0 +1,33 @@
+name: Journal
+options:
+  bundleIdPrefix: com.pappdrive.example
+  deploymentTarget:
+    iOS: '16.0'
+  xcodeVersion: '26.0'
+packages:
+  Pappdrive:
+    path: ../..
+targets:
+  Journal:
+    type: application
+    platform: iOS
+    sources: [Journal]
+    dependencies:
+      - package: Pappdrive
+    scheme:
+      testTargets: [JournalUITests]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        SWIFT_VERSION: '5.10'
+  JournalUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [JournalUITests]
+    dependencies:
+      - target: Journal
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES

@@ -24,8 +24,8 @@ export function serverError(e: ApiError, o: { path: string; server: string; app:
     case 'credentials':
       return new SyncError(
         'credentials',
-        o.path === '/auth/recover' ?
-          'Wrong email or recovery code. Check both against the saved copy.'
+        o.path === '/auth/recover' ? 'Wrong email or recovery code. Check both against the saved copy.'
+        : o.path === '/auth/verify' ? 'Wrong or expired code. Check the latest email, or send a new code with papp.sendVerificationEmail().'
         : 'Wrong email or password. Try again, or use the recovery code to set a new password.'
       );
     case 'exists':
@@ -47,6 +47,13 @@ export function serverError(e: ApiError, o: { path: string; server: string; app:
 
     case 'not-allowed':
       return new SyncError('not-allowed', 'The server refused this request for this token.');
+    case 'unverified':
+      return new SyncError(
+        'unverified',
+        'The email address is not confirmed yet, so nothing is uploaded. Enter the code from the sign-up email with papp.verifyEmail(code); papp.sendVerificationEmail() sends a new one.'
+      );
+    case 'over-quota':
+      return new SyncError('over-quota', "The account's storage is full, so new files wait on this device. Delete files, or upgrade the plan at https://pappdrive.com.");
     default:
       return new SyncError('server', `The server answered ${e.status} ${e.error}. Try again later; if it persists, update pappdrive.`);
   }

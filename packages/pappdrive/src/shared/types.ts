@@ -5,6 +5,7 @@ export interface PappOptions {
   app: string;
   read?: string[];
   keyStore?: KeyStore;
+  syncOnBackground?: boolean;
 }
 
 export interface Papp {
@@ -16,6 +17,8 @@ export interface Papp {
   signUp(email: string, password: string): Promise<{ recoveryCode: string }>;
   pendingSignUp(): Promise<PendingSignUp | null>;
   confirmRecoveryCode(): Promise<void>;
+  verifyEmail(code: string): Promise<void>;
+  sendVerificationEmail(): Promise<void>;
   signIn(email: string, password: string): Promise<void>;
   recover(email: string, recoveryCode: string, newPassword: string): Promise<void>;
   setPassword(newPassword: string): Promise<void>;

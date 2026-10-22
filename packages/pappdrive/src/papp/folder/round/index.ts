@@ -1,51 +1,49 @@
-import type { DeltaBody, IndexBody } from '@pappdrive/protocol';
+import type { DeltaPayload, IndexBody } from '@pappdrive/protocol';
 import { decodeBody } from '../../../shared/crypto.js';
 import { SyncError } from '../../../shared/errors.js';
-import { pathProblem } from '../../../shared/paths.js';
-import { isHard } from '../scan/ignore.js';
-import type { FsAdapter } from '../../../shared/platform.js';
-import { emptyView, serverView, type BaseIndex, type DiskRec, type ServerView } from '../shared/state.js';
+import { serverView, type ServerView } from '../state.js';
 import { applyServer } from './apply.js';
 import { resolveClashes } from './clashes.js';
 import { commitLocal } from './commit.js';
-import { decide } from './decide.js';
-import { Stopped, type RoundDeps } from './shared/types.js';
+import { decide, frozenKeys } from './decide.js';
+import type { RoundDeps } from './deps.js';
 
 const ROUND_TRIES = 8;
 
+export type RoundOutcome = { downloadError: Error | null; skipped: string[] } | 'stopped';
 export type SyncEngine = ReturnType<typeof createSyncEngine>;
 
 export function createSyncEngine(r: RoundDeps) {
-  let skippedPaths: string[] = [];
+  let reportedSkipped = new Set<string>();
 
-  async function round(local: boolean): Promise<{ downloadError: Error | null } | 'stopped'> {
+  async function round(local: boolean): Promise<RoundOutcome> {
     try {
       let downloadError: Error | null = null;
 
       for (let i = 0; i < ROUND_TRIES; i++) {
-        const once = await roundOnce(local);
-        downloadError ??= once.downloadError;
+        const attempt = await roundOnce(local);
+        downloadError ??= attempt.downloadError;
 
-        if (once.commit === 'done') {
-          return { downloadError };
+        if (attempt.commit === 'done') {
+          return { downloadError, skipped: attempt.skipped };
         }
       }
 
       throw new SyncError('server', "Other devices kept committing first, so this device's changes wait. The next sync tries again.");
     } catch (e) {
-      if (e instanceof Stopped) {
+      if (r.signal.aborted) {
         return 'stopped';
       }
 
       throw e;
     } finally {
-      if (!r.isStopped()) {
+      if (!r.signal.aborted) {
         await r.state.flush();
       }
     }
   }
 
-  async function roundOnce(local: boolean): Promise<{ commit: 'done' | 'stale'; downloadError: Error | null }> {
+  async function roundOnce(local: boolean): Promise<{ commit: 'done' | 'stale'; downloadError: Error | null; skipped: string[] }> {
     const { readOnly, fs } = r.ctx;
     const view = await fetchIndex();
     await r.scanner.refreshRules();
@@ -58,48 +56,70 @@ export function createSyncEngine(r: RoundDeps) {
       }
     }
 
-    if (r.isStopped()) {
-      throw new Stopped();
+    r.signal.throwIfAborted();
+    const { frozen, skipped } = frozenKeys(r.state.disk, view, fs);
+
+    for (const p of skipped) {
+      if (!reportedSkipped.has(p)) {
+        r.fire({ path: p, origin: 'skipped', reason: 'bad name' });
+      }
     }
 
-    const { frozen, skipped } = frozenKeys(r.state.disk, view, fs);
-    reportSkipped(skipped);
+    reportedSkipped = new Set(skipped);
     const decideNow = () => decide({ disk: r.state.disk, synced: r.state.synced, server: view.map, frozen, readOnly });
     const first = decideNow();
     const decisions = !readOnly && (await resolveClashes(r, first, view)) ? decideNow() : first;
     const downloadError = await applyServer(r, decisions);
 
     if (!local || readOnly) {
-      return { commit: 'done', downloadError };
+      return { commit: 'done', downloadError, skipped };
     }
 
-    return { commit: await commitLocal(r, view, decideNow()), downloadError };
+    return { commit: await commitLocal(r, view, decideNow()), downloadError, skipped };
   }
 
   async function fetchIndex(): Promise<ServerView> {
-    const { keys, readOnly, api } = r.ctx;
+    const { keys, readOnly, api, app } = r.ctx;
     const { state } = r;
     const known = state.server;
     const fetched = await api.getDelta(known);
+    r.signal.throwIfAborted();
 
-    if (r.isStopped()) {
-      throw new Stopped();
-    } else if (fetched.kind === 'unchanged') {
+    if (fetched.kind === 'unchanged') {
       return fetched.known;
     } else if (fetched.kind === 'found') {
       const { delta, etag } = fetched;
-      const base = known?.base?.id === delta.base ? known.base : await loadBase(delta.base);
+      const payload = await decodeBody<DeltaPayload>(keys, { kind: 'delta', app, base: delta.base }, delta.body);
 
-      return (state.server = serverView(etag, base, delta.blobs, await decodeBody<DeltaBody>(keys, delta.body)));
+      if (payload.seq < state.seenSeq) {
+        throw new SyncError(
+          'server',
+          `The server sent version ${payload.seq} of the folder's index, older than version ${state.seenSeq} this device already saw. ` +
+            'Sync stopped so no change is undone. The next sync checks again.'
+        );
+      }
+
+      state.setSeenSeq(payload.seq);
+
+      if (known?.base?.id === delta.base) {
+        return (state.server = serverView(etag, known.base, delta.blobs, payload));
+      }
+
+      const index = await api.getIndex(delta.base);
+      const base = { id: delta.base, header: index.blobs, body: await decodeBody<IndexBody>(keys, { kind: 'index', app, base: delta.base }, index.body) };
+
+      return (state.server = serverView(etag, base, delta.blobs, payload));
     }
 
     state.server = null;
 
     if (readOnly || state.synced.size === 0) {
-      return emptyView();
-    } else if ((await r.ctx.checkGone()) === 'gone' || r.isStopped()) {
-      throw new Stopped();
+      return { etag: null, base: null, seq: state.seenSeq, ops: {}, header: {}, body: {}, map: new Map() };
     }
+
+    // the server answers a deleted folder's /delta with 404 too; only a token refresh reports the deletion.
+    await r.ctx.noticeGone();
+    r.signal.throwIfAborted();
 
     throw new SyncError(
       'server',
@@ -108,55 +128,5 @@ export function createSyncEngine(r: RoundDeps) {
     );
   }
 
-  async function loadBase(id: string): Promise<BaseIndex> {
-    const index = await r.ctx.api.getIndex(id);
-
-    return { id, header: index.blobs, body: await decodeBody<IndexBody>(r.ctx.keys, index.body) };
-  }
-
-  function reportSkipped(skipped: string[]): void {
-    const reported = new Set(skippedPaths);
-
-    for (const p of skipped) {
-      if (!reported.has(p)) {
-        r.fire({ path: p, origin: 'skipped', reason: 'bad name' });
-      }
-    }
-
-    skippedPaths = skipped.sort();
-  }
-
-  return {
-    round,
-    get skippedPaths() {
-      return skippedPaths;
-    },
-  };
-}
-
-function frozenKeys(disk: Map<string, DiskRec>, view: ServerView, fs: FsAdapter): { frozen: Set<string>; skipped: string[] } {
-  const frozen = new Set<string>();
-  const skipped: string[] = [];
-
-  for (const [key, d] of disk) {
-    if (!d.skipped) {
-      continue;
-    }
-
-    frozen.add(key);
-    skipped.push(d.path);
-  }
-
-  for (const [key, v] of view.map) {
-    if (frozen.has(key)) {
-      continue;
-    } else if (isHard(v.path)) {
-      frozen.add(key);
-    } else if (pathProblem(v.path) || v.path.split('/').some(seg => !fs.canCreate(seg))) {
-      frozen.add(key);
-      skipped.push(v.path);
-    }
-  }
-
-  return { frozen, skipped };
+  return { round };
 }

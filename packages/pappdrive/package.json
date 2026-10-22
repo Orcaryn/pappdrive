@@ -22,10 +22,18 @@
   },
   "exports": {
     ".": {
-      "types": "./dist/node.d.ts",
-      "browser": "./dist/browser.js",
-      "node": "./dist/node.js",
-      "default": "./dist/browser.js"
+      "browser": {
+        "types": "./dist/browser.d.ts",
+        "default": "./dist/browser.js"
+      },
+      "node": {
+        "types": "./dist/node.d.ts",
+        "default": "./dist/node.js"
+      },
+      "default": {
+        "types": "./dist/browser.d.ts",
+        "default": "./dist/browser.js"
+      }
     },
     "./node": {
       "types": "./dist/node.d.ts",
@@ -34,20 +42,31 @@
     "./browser": {
       "types": "./dist/browser.d.ts",
       "default": "./dist/browser.js"
+    },
+    "./core": {
+      "types": "./dist/core.d.ts",
+      "default": "./dist/core.js"
+    },
+    "./rpc": {
+      "types": "./dist/rpc.d.ts",
+      "default": "./dist/rpc.js"
     }
   },
   "scripts": {
     "typecheck": "tsc -p .",
     "test": "vitest run",
-    "build": "tsup && mkdir -p docs/skill && cp ../../docs/api.md ../../docs/llms.txt docs/ && cp ../../docs/skill/SKILL.md docs/skill/"
+    "build": "tsup && mkdir -p docs/skill && cp ../../docs/api.md ../../docs/hosts.md ../../docs/llms.txt docs/ && cp ../../docs/skill/SKILL.md docs/skill/ && cp dist/embedded.js ../swift/Sources/Pappdrive/Resources/pappdrive.js && cp dist/embedded.js ../android/pappdrive/src/main/assets/pappdrive.js",
+    "prepack": "pnpm run build",
+    "build:sidecar": "bun build --compile --target=bun-darwin-arm64 src/sidecar/index.ts --outfile dist/pappdrived-arm64 && bun build --compile --target=bun-darwin-x64 src/sidecar/index.ts --outfile dist/pappdrived-x64 && lipo -create dist/pappdrived-arm64 dist/pappdrived-x64 -output dist/pappdrived && codesign -f -s - dist/pappdrived && rm dist/pappdrived-arm64 dist/pappdrived-x64"
   },
   "dependencies": {
+    "fflate": "^0.8.3",
     "hash-wasm": "^4.12.0",
     "ignore": "7.0.12"
   },
   "optionalDependencies": {
-    "@parcel/watcher": "^2.5.0",
-    "@napi-rs/keyring": "^1.1.0"
+    "@napi-rs/keyring": "^1.1.0",
+    "@parcel/watcher": "^2.5.0"
   },
   "files": [
     "dist",

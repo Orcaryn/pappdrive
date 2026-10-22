@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import type { DeltaFile } from '@pappdrive/protocol';
+import { encodeBody } from '../src/shared/crypto.js';
 import type { Coordinator, CoordinatorMessage, FsAdapter } from '../src/shared/platform.js';
 import { closeDevices, device, setup } from './helpers/device.js';
 import { createMemFs } from './helpers/memfs.js';
@@ -63,7 +65,7 @@ describe('scheduling', () => {
   it('going to the background ends the debounce and syncs', async () => {
     const { server, keys } = await setup(0);
     const backgroundListeners = new Set<() => void>();
-    const d = await device(server, keys, { tuning: { quietMs: 60_000, maxWaitMs: 60_000 } }, false);
+    const d = await device(server, keys, { tuning: { quietMs: 60_000, maxWaitMs: 60_000 }, syncOnBackground: true }, false);
     (d.ctx.platform as { onBackground?: (cb: () => void) => () => void }).onBackground = cb => {
       backgroundListeners.add(cb);
 
@@ -77,6 +79,20 @@ describe('scheduling', () => {
     expect(backgroundListeners.size).toBe(1);
     backgroundListeners.forEach(cb => cb());
     await until(async () => Object.keys(await server.body(keys)).length === 1);
+  });
+
+  it('without syncOnBackground the folder does not listen for the background', async () => {
+    const { server, keys } = await setup(0);
+    const backgroundListeners = new Set<() => void>();
+    const d = await device(server, keys, {}, false);
+    (d.ctx.platform as { onBackground?: (cb: () => void) => () => void }).onBackground = cb => {
+      backgroundListeners.add(cb);
+
+      return () => backgroundListeners.delete(cb);
+    };
+
+    await d.folder.start();
+    expect(backgroundListeners.size).toBe(0);
   });
 });
 
@@ -244,5 +260,44 @@ describe('browser tabs', () => {
 
       return shared.text('later.md') === 'l';
     });
+  });
+});
+
+describe('a dishonest server', () => {
+  it('refuses an older index than this device saw, and keeps the newer files', async () => {
+    const { server, devs } = await setup(2);
+    const [a, b] = [must(devs[0]), must(devs[1])];
+    await a.folder.write('first.md', '1');
+    await a.folder.sync();
+    const old = must(server.delta);
+    await a.folder.write('second.md', '2');
+    await a.folder.sync();
+    await b.folder.sync();
+    server.delta = { text: old.text, etag: 'rolled-back' };
+    await expect(b.folder.sync()).rejects.toThrow('older than version 2');
+    expect((await b.folder.list()).map(f => f.path)).toEqual(['first.md', 'second.md']);
+  });
+
+  it("refuses another app's index", async () => {
+    const { server, keys, devs } = await setup(1);
+    const a = must(devs[0]);
+    await a.folder.write('mine.md', 'm');
+    await a.folder.sync();
+    const delta = JSON.parse(must(server.delta).text) as DeltaFile;
+    const body = await encodeBody(keys, { kind: 'delta', app: 'journal', base: delta.base }, { seq: 9, ops: {} });
+    server.delta = { text: JSON.stringify({ ...delta, body }), etag: 'swapped' };
+    await expect(a.folder.sync()).rejects.toThrow('did not decrypt');
+  });
+});
+
+describe('readStream', () => {
+  it('fails with changed when the file is replaced while it is read', async () => {
+    const { devs } = await setup(1);
+    const a = must(devs[0]);
+    await a.folder.write('big.bin', new Uint8Array(1.5 * 1024 * 1024));
+    const reader = a.folder.readStream('big.bin').getReader();
+    expect((await reader.read()).done).toBe(false);
+    a.fs.put('big.bin', 'replaced');
+    await expect(reader.read()).rejects.toThrow('changed while it was read');
   });
 });

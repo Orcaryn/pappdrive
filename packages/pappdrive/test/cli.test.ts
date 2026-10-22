@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { type DeltaFile, type IndexBody, type IndexFile, PART_SIZE, type SignupRequest } from '@pappdrive/protocol';
 import { fromBase64 } from '../src/shared/bytes.js';
+import { hashWasmArgon2 } from '../src/shared/argon2.js';
 import * as c from '../src/shared/crypto.js';
 import type { KeyStore } from '../src/shared/types.js';
 import type { Prompter } from '../src/cli/shared/prompt.js';
@@ -49,6 +50,7 @@ interface Fake {
   requests: string[];
   setFolder(index: IndexFile, delta: DeltaFile, blobs: Map<string, Uint8Array>): void;
   signup?: SignupRequest;
+  verifyCode?: string;
 }
 
 function fakeServer(passwordCopy = ''): Fake {
@@ -79,6 +81,10 @@ function fakeServer(passwordCopy = ''): Fake {
       return json({ accessToken, refreshToken: 'ref', installId: 'i1' });
     } else if (route === '/auth/login') {
       return json({ accessToken, refreshToken: 'ref', installId: 'i1', passwordCopy });
+    } else if (route === '/auth/verify') {
+      fake.verifyCode = body.code;
+
+      return new Response(null, { status: 204 });
     } else if (route === '/auth/logout') {
       return new Response(null, { status: 204 });
     } else if (route === '/delta?app=my-notes') {
@@ -141,6 +147,8 @@ describe('commands against a fake server', () => {
         const lastGroup = /[0-9A-Z]{5}(?:-[0-9A-Z]{5}){3}-([0-9A-Z]{6})/.exec(said)?.[1] ?? '';
 
         return said.includes('does not match') ? lastGroup.toLowerCase() : 'nope';
+      } else if (q.startsWith('Code from the email')) {
+        return '123456';
       }
 
       throw new Error(`unexpected question ${q}`);
@@ -153,19 +161,21 @@ describe('commands against a fake server', () => {
     expect(s.read).toEqual([]);
     expect(fromBase64(s.loginKey).length).toBe(32);
     expect(fromBase64(s.recoveryLoginKey).length).toBe(32);
-    const pk = await c.deriveFromPassword(EMAIL, PASSWORD, FAST_ARGON2_PARAMS);
+    const pk = await c.deriveFromPassword(hashWasmArgon2, EMAIL, PASSWORD, FAST_ARGON2_PARAMS);
     expect((await c.unlockDataKey(s.passwordCopy, pk.passwordKey)).length).toBe(32);
     expect(ctx.lines).toContain('That does not match. Look at the code above and type the characters after its last dash.');
     expect(ctx.lines).toContain('Recovery code confirmed.');
     expect(await ctx.keyStore.get(ctx.sessionName)).toBe('ref');
     expect(ctx.lines.join('\n')).toContain('The app "my-notes" is created');
+    expect(fake.verifyCode).toBe('123456');
+    expect(ctx.lines).toContain('Email confirmed.');
   });
 });
 
 describe('export', async () => {
   const dataKey = c.randomBytes(32);
   const keys = await c.dataKeys(dataKey);
-  const pk = await c.deriveFromPassword(EMAIL, PASSWORD, FAST_ARGON2_PARAMS);
+  const pk = await c.deriveFromPassword(hashWasmArgon2, EMAIL, PASSWORD, FAST_ARGON2_PARAMS);
   const passwordCopy = await c.lockDataKey(dataKey, pk.passwordKey);
   const blobs = new Map<string, Uint8Array>();
   const header: Record<string, number> = {};
@@ -195,8 +205,9 @@ describe('export', async () => {
     ['Café/thé.md'.normalize('NFC')]: { id: await put(small), size: 5, mtime },
     'video/talk.bin': { id: await c.bigFileId(keys, parts), size: big.length, mtime, parts },
   };
-  const index: IndexFile = { v: 1, blobs: header, body: await c.encodeBody(keys, body) };
-  const delta: DeltaFile = { v: 1, base: 'b'.repeat(64), blobs: {}, body: await c.encodeBody(keys, {}) };
+  const base = 'b'.repeat(64);
+  const index: IndexFile = { v: 1, blobs: header, body: await c.encodeBody(keys, { kind: 'index', app: 'my-notes', base }, body) };
+  const delta: DeltaFile = { v: 1, base, blobs: {}, body: await c.encodeBody(keys, { kind: 'delta', app: 'my-notes', base }, { seq: 1, ops: {} }) };
   const run = (dir: string) => exportApp(ctxFor(fakePrompter(q => (q.startsWith('Email') ? EMAIL : PASSWORD))), 'my-notes', dir);
 
   it('downloads and decrypts every file, big files in parts, and leaves no hidden folder behind', async () => {

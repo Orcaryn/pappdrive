@@ -3,10 +3,10 @@ import { SyncError } from '../../../shared/errors.js';
 import { IGNORE_FILE, type IgnoreFile, ignoreRules, isHard } from './ignore.js';
 import { baseName, dirKeysOf, HIDDEN_DIR, joinPath, parentOf, pathKey, pathProblem } from '../../../shared/paths.js';
 import { readAll } from '../files/read.js';
-import { hashFile } from '../shared/hash.js';
-import type { DiskRec, LocalState } from '../shared/state.js';
+import { hashFile } from '../hash.js';
+import type { DiskRec, LocalState } from '../state.js';
 import type { Change } from '../../../shared/types.js';
-import type { FolderContext } from '../shared/types.js';
+import type { FolderContext } from '../types.js';
 
 interface FoundIgnoreFile extends IgnoreFile {
   path: string;

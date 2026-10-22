@@ -9,8 +9,6 @@ type RootSegs = [string, string, string];
 
 const TMP = `${HIDDEN_DIR}/tmp`;
 const PROBE = 'case-Probe';
-// WHATWG File System forbids the platform's path separator in a name; backslash is one on Windows, and a page cannot tell its platform.
-const canCreate = (segment: string): boolean => !segment.includes('\\');
 
 export async function openOpfs(userId: string, app: string, readFor?: string, getRoot = opfsRoot): Promise<FsAdapter> {
   const rootSegs: RootSegs = ['pappdrive', userId, readFor ? `${app}.read-${readFor}` : app];
@@ -20,12 +18,7 @@ export async function openOpfs(userId: string, app: string, readFor?: string, ge
   const probe = await hidden.getFileHandle(PROBE, { create: true });
   // WebKit's OPFS is case-insensitive on a case-insensitive disk.
   const caseInsensitive = (await hidden.getFileHandle(PROBE.toUpperCase()).catch(nullIfMissing)) !== null;
-  await removeAbandonedSaves(hidden);
-
-  return opfsFolder(top, rootSegs, root, caseInsensitive, probe.createWritable === undefined ? writeViaWorker : writeWithWritable);
-}
-
-async function removeAbandonedSaves(hidden: OpfsDirHandle): Promise<void> {
+  const writeFile: WriteFile = probe.createWritable === undefined ? writeViaWorker : writeWithWritable;
   const hourAgo = Date.now() - 3600_000;
 
   for await (const [name, h] of hidden.entries()) {
@@ -33,21 +26,7 @@ async function removeAbandonedSaves(hidden: OpfsDirHandle): Promise<void> {
       await hidden.removeEntry(name).catch(nullIfMissing);
     }
   }
-}
 
-async function opfsRoot(): Promise<OpfsDirHandle> {
-  try {
-    return (await navigator.storage.getDirectory()) as unknown as OpfsDirHandle;
-  } catch (e) {
-    throw new SyncError(
-      'not-allowed',
-      `The browser gives this page no private file storage (OPFS): ${String(e)}. It needs a secure page (https or localhost), ` +
-        'and private windows often turn it off. Open the app in a normal window over https.'
-    );
-  }
-}
-
-function opfsFolder(top: OpfsDirHandle, rootSegs: RootSegs, root: OpfsDirHandle, caseInsensitive: boolean, writeFile: WriteFile): FsAdapter {
   async function stat(path: string): Promise<FileStat | null> {
     const f = await getFile(path);
 
@@ -228,8 +207,13 @@ function opfsFolder(top: OpfsDirHandle, rootSegs: RootSegs, root: OpfsDirHandle,
     }
   }
 
+  // getFileHandle({ create: true }) makes the file at once, empty, before a byte is written; move() swaps a finished file in atomically.
   async function write(dirPath: string, name: string, parts: Part[]): Promise<OpfsFileHandle> {
-    return writeFile(await makeDirs(root, dirPath), [...rootSegs, ...dirPath.split('/')], name, parts);
+    const dir = await makeDirs(root, dirPath);
+    const saved = await writeFile(dir, [...rootSegs, ...dirPath.split('/')], `${name}.${Math.random().toString(36).slice(2, 10)}.saving`, parts);
+    await saved.move(dir, name);
+
+    return saved;
   }
 
   async function getFile(path: string): Promise<File | null> {
@@ -255,7 +239,8 @@ function opfsFolder(top: OpfsDirHandle, rootSegs: RootSegs, root: OpfsDirHandle,
   return {
     kind: 'private',
     caseInsensitive,
-    canCreate,
+    // WHATWG File System forbids the platform's path separator in a name; backslash is one on Windows, and a page cannot tell its platform.
+    canCreate: segment => !segment.includes('\\'),
     stat,
     list,
     read,
@@ -272,4 +257,16 @@ function opfsFolder(top: OpfsDirHandle, rootSegs: RootSegs, root: OpfsDirHandle,
     saveState,
     destroy,
   };
+}
+
+async function opfsRoot(): Promise<OpfsDirHandle> {
+  try {
+    return (await navigator.storage.getDirectory()) as unknown as OpfsDirHandle;
+  } catch (e) {
+    throw new SyncError(
+      'not-allowed',
+      `The browser gives this page no private file storage (OPFS): ${String(e)}. It needs a secure page (https or localhost), ` +
+        'and private windows often turn it off. Open the app in a normal window over https.'
+    );
+  }
 }

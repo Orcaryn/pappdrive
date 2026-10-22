@@ -26,6 +26,15 @@
         <input id="recovery-check" placeholder="Type its last group" autocomplete="off" />
         <button id="recovery-done">I saved it</button>
       </div>
+      <div id="verify" class="sign-in" hidden>
+        <p>We sent a 6-digit code to your email. Nothing syncs until you enter it.</p>
+        <input id="verify-code" inputmode="numeric" autocomplete="one-time-code" placeholder="Code from the email" />
+        <div class="actions">
+          <button id="verify-done">Confirm</button>
+          <button type="button" id="verify-resend">Send a new code</button>
+        </div>
+        <p id="verify-error" class="error"></p>
+      </div>
     </section>
 
     <section id="journal-screen" class="journal-screen" hidden>

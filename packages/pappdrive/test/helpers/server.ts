@@ -1,11 +1,11 @@
-import type { CommitResult, DeltaBody, DeltaFile, IndexBody, IndexFile } from '@pappdrive/protocol';
+import type { CommitResult, DeltaFile, DeltaPayload, IndexBody, IndexFile } from '@pappdrive/protocol';
 import { decodeBody, type DataKeys } from '../../src/shared/crypto.js';
 import { SyncError } from '../../src/shared/errors.js';
-import type { FolderApi } from '../../src/papp/folder/shared/types.js';
+import type { FolderApi } from '../../src/papp/folder/types.js';
 
 export type FakeServer = ReturnType<typeof createFakeServer>;
 
-export function createFakeServer() {
+export function createFakeServer(app: string) {
   let etagN = 0;
   const server = {
     blobs: new Map<string, Uint8Array>(),
@@ -80,17 +80,17 @@ export function createFakeServer() {
       },
       commitDelta,
       commitCheckpoint,
-      watchIndex: onChange => {
-        server.watchers.add(onChange);
+      watchIndex: check => {
+        server.watchers.add(check);
 
-        return () => server.watchers.delete(onChange);
+        return () => server.watchers.delete(check);
       },
     };
   }
 
   function notify(): void {
-    for (const onChange of server.watchers) {
-      onChange();
+    for (const check of server.watchers) {
+      check();
     }
   }
 
@@ -182,9 +182,9 @@ export function createFakeServer() {
       return {};
     }
 
-    const merged = await decodeBody<IndexBody>(keys, c.index.body);
+    const merged = await decodeBody<IndexBody>(keys, { kind: 'index', app, base: c.delta.base }, c.index.body);
 
-    for (const [path, entry] of Object.entries(await decodeBody<DeltaBody>(keys, c.delta.body))) {
+    for (const [path, entry] of Object.entries((await decodeBody<DeltaPayload>(keys, { kind: 'delta', app, base: c.delta.base }, c.delta.body)).ops)) {
       if (entry === null) {
         delete merged[path];
       } else {

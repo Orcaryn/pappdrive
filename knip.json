@@ -1,1 +1,7 @@
-{ "$schema": "https://unpkg.com/knip@6/schema.json", "ignore": ["examples/**"], "ignoreDependencies": ["dependency-cruiser", "cloudflare"] }
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignore": ["examples/**", "packages/swift/**", "packages/android/**"],
+  "ignoreDependencies": ["dependency-cruiser", "cloudflare"],
+  "ignoreBinaries": ["lipo"],
+  "workspaces": { "packages/pappdrive": { "entry": ["src/sidecar/index.ts"] } }
+}

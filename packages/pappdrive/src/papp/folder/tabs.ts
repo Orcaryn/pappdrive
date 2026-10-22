@@ -1,9 +1,10 @@
-import type { Change, Status } from '../../shared/types.js';
 import type { Coordinator, CoordinatorMessage } from '../../shared/platform.js';
-import type { FolderContext } from './shared/types.js';
+import type { Change, Status } from '../../shared/types.js';
+import type { FolderContext } from './types.js';
 
 interface TabHooks {
-  isStopped: () => boolean;
+  lead: () => Promise<void>;
+  onError: (e: unknown) => void;
   deliver: (change: Change) => void;
   setStatus: (status: Status) => void;
   followerChanged: (paths: string[]) => void;
@@ -11,7 +12,7 @@ interface TabHooks {
 
 const OWN_WRITE_ECHO_MS = 10_000;
 
-export function createTabs(ctx: FolderContext, hooks: TabHooks) {
+export function createTabs(ctx: FolderContext, signal: AbortSignal) {
   let coord: Coordinator | undefined = undefined;
   const recentWrites = new Map<string, number>();
   const tabs = {
@@ -20,36 +21,52 @@ export function createTabs(ctx: FolderContext, hooks: TabHooks) {
       return coord !== undefined;
     },
     start,
-    broadcast,
+    post,
     tellLeader,
     askLeaderToSync,
     close,
   };
 
-  async function start(lead: () => Promise<void>, onError: (e: unknown) => void): Promise<void> {
+  async function start(hooks: TabHooks): Promise<void> {
     const coordinator = ctx.platform.coordinator?.(`${ctx.app}${ctx.readOnly ? ':read' : ''}`);
 
     if (!coordinator) {
-      return lead();
+      return hooks.lead();
     }
 
     coord = coordinator;
-    coordinator.onMessage(onMessage);
+    coordinator.onMessage(m => {
+      if (signal.aborted) {
+        return;
+      } else if (tabs.leading) {
+        if (m.type === 'local-change') {
+          hooks.followerChanged(m.paths);
+        }
+      } else if (m.type === 'change') {
+        const wrote = recentWrites.get(m.change.path);
+
+        if (m.change.origin !== 'local' || wrote === undefined || Date.now() - wrote >= OWN_WRITE_ECHO_MS) {
+          hooks.deliver(m.change);
+        }
+      } else if (m.type === 'status') {
+        hooks.setStatus(m.status);
+      }
+    });
     const granted = coordinator.waitForLead().then(() => true);
     const now = await Promise.race([granted, new Promise<boolean>(r => setTimeout(() => r(false), 50))]);
 
     if (now || coordinator.isLeader()) {
-      return lead();
+      return hooks.lead();
     }
 
     void granted.then(() => {
-      if (!hooks.isStopped()) {
-        lead().catch(onError);
+      if (!signal.aborted) {
+        hooks.lead().catch(hooks.onError);
       }
     });
   }
 
-  function broadcast(msg: CoordinatorMessage): void {
+  function post(msg: CoordinatorMessage): void {
     if (tabs.leading) {
       coord?.post(msg);
     }
@@ -92,28 +109,6 @@ export function createTabs(ctx: FolderContext, hooks: TabHooks) {
 
   function close(): void {
     coord?.close();
-  }
-
-  function onMessage(m: CoordinatorMessage): void {
-    if (hooks.isStopped()) {
-      return;
-    } else if (tabs.leading) {
-      if (m.type === 'local-change') {
-        hooks.followerChanged(m.paths);
-      }
-
-      return;
-    } else if (m.type === 'change') {
-      const wrote = recentWrites.get(m.change.path);
-
-      if (m.change.origin === 'local' && wrote !== undefined && Date.now() - wrote < OWN_WRITE_ECHO_MS) {
-        return;
-      }
-
-      hooks.deliver(m.change);
-    } else if (m.type === 'status') {
-      hooks.setStatus(m.status);
-    }
   }
 
   return tabs;

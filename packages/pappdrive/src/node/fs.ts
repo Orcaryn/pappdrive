@@ -25,7 +25,10 @@ export async function openNodeFs(root: string, kind: FsAdapter['kind']): Promise
     let cur = abs;
 
     for (const seg of path === '' ? [] : path.split('/')) {
-      cur = join(cur, NON_ASCII.test(seg) ? await onDiskName(cur, seg) : seg);
+      // macOS hands out NFD names, and a Linux disk may hold NFD names copied from a Mac.
+      const asTyped = !NON_ASCII.test(seg) || (await ifMissing(fsp.lstat(join(cur, seg)), null)) !== null;
+      const onDisk = asTyped ? seg : (await ifMissing(fsp.readdir(cur), [])).find(n => n.normalize('NFC') === seg);
+      cur = join(cur, onDisk ?? seg);
     }
 
     return cur;
@@ -221,17 +224,6 @@ export function canCreateName(segment: string, windows = process.platform === 'w
   }
 
   return !(WINDOWS_BAD_CHARS.test(segment) || [...segment].some(c => c < ' ') || segment.endsWith('.') || segment.endsWith(' ') || WINDOWS_RESERVED.test(segment));
-}
-
-// macOS hands out NFD names, and a Linux disk may hold NFD names copied from a Mac.
-async function onDiskName(dir: string, nfc: string): Promise<string> {
-  if (await ifMissing(fsp.lstat(join(dir, nfc)), null)) {
-    return nfc;
-  }
-
-  const names = await ifMissing(fsp.readdir(dir), []);
-
-  return names.find(n => n.normalize('NFC') === nfc) ?? nfc;
 }
 
 export async function makeDir(abs: string, fileInTheWay: () => SyncError): Promise<void> {

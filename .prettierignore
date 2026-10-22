@@ -6,3 +6,6 @@
 docs/spec/
 packages/pappdrive/docs/
 pnpm-lock.yaml
+packages/server/migrations/meta/
+packages/swift/Sources/Pappdrive/Resources/pappdrive.js
+packages/android/pappdrive/src/main/assets/pappdrive.js

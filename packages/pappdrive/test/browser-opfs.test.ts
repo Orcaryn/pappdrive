@@ -3,6 +3,7 @@ import { openOpfs } from '../src/browser/opfs/index.js';
 import type { OpfsDirHandle, OpfsFileHandle, OpfsWritable } from '../src/browser/opfs/handles.js';
 
 const fail = (name: string) => new DOMException(name, name);
+let writesFail = false;
 
 interface FakeFile extends OpfsFileHandle {
   name: string;
@@ -39,6 +40,10 @@ function createFakeFile(name: string, parent: FakeDir): FakeFile {
 
       return {
         write: async d => {
+          if (writesFail) {
+            throw fail('AbortError');
+          }
+
           parts.push(d instanceof Blob ? new Uint8Array(await d.arrayBuffer()) : new Uint8Array(d));
         },
         close: async () => {
@@ -148,6 +153,17 @@ async function setup(ci = false) {
 }
 
 describe('OPFS adapter', () => {
+  it('a save cut off mid-write leaves no file under its name, and a finished save replaces the old one', async () => {
+    const { fs } = await setup();
+    writesFail = true;
+    await expect(fs.saveState('app', 'notes')).rejects.toThrow('AbortError');
+    writesFail = false;
+    expect(await fs.loadState('app')).toBeNull();
+    await fs.saveState('app', 'notes');
+    await fs.saveState('app', 'journal');
+    expect(await fs.loadState('app')).toBe('journal');
+  });
+
   it('moves an empty temp file', async () => {
     const { fs } = await setup();
     await fs.tempAppend('e', new Uint8Array(0));

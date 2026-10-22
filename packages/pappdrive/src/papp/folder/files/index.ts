@@ -5,9 +5,9 @@ import { baseName, HIDDEN_DIR, parentOf, pathKey, pathProblem } from '../../../s
 import type { FileInfo, Files, WriteData } from '../../../shared/types.js';
 import { IGNORE_FILE } from '../scan/ignore.js';
 import type { Scanner } from '../scan/index.js';
-import type { WithLock } from '../shared/locks.js';
-import type { LocalState } from '../shared/state.js';
-import type { FolderContext } from '../shared/types.js';
+import type { WithLock } from '../locks.js';
+import type { LocalState } from '../state.js';
+import type { FolderContext } from '../types.js';
 import { fileStream, listFolder, notFound, readAll } from './read.js';
 import { checkNames, streamToTemp } from './write.js';
 

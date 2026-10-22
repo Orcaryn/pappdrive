@@ -1,6 +1,7 @@
 import { homedir } from 'node:os';
 import * as fsp from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
+import { hashWasmArgon2 } from '../shared/argon2.js';
 import { HIDDEN_DIR } from '../shared/paths.js';
 import { SyncError } from '../shared/errors.js';
 import type { FsAdapter, Platform } from '../shared/platform.js';
@@ -9,6 +10,7 @@ import { ifMissing, makeDir, openNodeFs } from './fs.js';
 import { onProcessEnd } from './process-end.js';
 
 export const nodePlatform: Platform = {
+  argon2: hashWasmArgon2,
   openPrivate: (userId, app, readFor) => openNodeFs(privateStorePath(userId, app, readFor), 'private'),
   openVisible: openVisibleFolder,
   onBackground: onProcessEnd,
@@ -24,42 +26,28 @@ export function privateStorePath(userId: string, app: string, readFor?: string):
   return readFor === undefined ? join(base, app) : join(base, `${app}.read`, readFor);
 }
 
-function expandHome(path: string): string {
-  if (path === '~') {
-    return homedir();
-  } else if (path.startsWith('~/') || path.startsWith('~\\')) {
-    return join(homedir(), path.slice(2));
-  }
-
-  return resolve(path);
-}
-
 export async function openVisibleFolder(path: string): Promise<FsAdapter> {
-  const abs = expandHome(path);
-  const above = await folderAbove(abs);
+  const abs =
+    path === '~' ? homedir()
+    : path.startsWith('~/') || path.startsWith('~\\') ? join(homedir(), path.slice(2))
+    : resolve(path);
 
-  if (above !== null) {
-    throw new SyncError(
-      'folder-taken',
-      `"${abs}" is inside "${above}", which is already a synced app folder (it has a ${HIDDEN_DIR}/ folder). ` +
-        `Two apps syncing the same files would never agree. Open a folder outside "${above}". ` +
-        `To use that app's files, open them read-only with papp.openReadOnly("<that app>").`
-    );
+  for (let d = dirname(abs); ; d = dirname(d)) {
+    const hidden = await ifMissing(fsp.stat(join(d, HIDDEN_DIR)), null);
+
+    if (hidden?.isDirectory()) {
+      throw new SyncError(
+        'folder-taken',
+        `"${abs}" is inside "${d}", which is already a synced app folder (it has a ${HIDDEN_DIR}/ folder). ` +
+          `Two apps syncing the same files would never agree. Open a folder outside "${d}". ` +
+          `To use that app's files, open them read-only with papp.openReadOnly("<that app>").`
+      );
+    } else if (dirname(d) === d) {
+      break;
+    }
   }
 
   await makeDir(abs, () => new SyncError('bad-path', `"${abs}" is a file, not a folder. Give open() a folder path.`));
 
   return openNodeFs(abs, 'visible');
-}
-
-async function folderAbove(abs: string): Promise<string | null> {
-  for (let d = dirname(abs); ; d = dirname(d)) {
-    const hidden = await ifMissing(fsp.stat(join(d, HIDDEN_DIR)), null);
-
-    if (hidden?.isDirectory()) {
-      return d;
-    } else if (dirname(d) === d) {
-      return null;
-    }
-  }
 }

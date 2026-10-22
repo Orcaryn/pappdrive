@@ -1,3 +1,4 @@
+import type { Argon2 } from './crypto.js';
 import type { Change, Status } from './types.js';
 
 export interface FileStat {
@@ -47,6 +48,7 @@ export interface Coordinator {
 export type CoordinatorMessage = { type: 'local-change'; paths: string[] } | { type: 'change'; change: Change } | { type: 'status'; status: Status };
 
 export interface Platform {
+  argon2: Argon2;
   openPrivate(userId: string, app: string, readFor?: string): Promise<FsAdapter>;
   openVisible(path: string): Promise<FsAdapter>;
   coordinator?(name: string): Coordinator;

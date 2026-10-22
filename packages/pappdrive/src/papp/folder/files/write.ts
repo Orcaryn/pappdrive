@@ -5,7 +5,7 @@ import { SyncError } from '../../../shared/errors.js';
 import { HIDDEN_DIR, joinPath, pathKey } from '../../../shared/paths.js';
 import type { FsAdapter } from '../../../shared/platform.js';
 import type { WriteData } from '../../../shared/types.js';
-import { entryFromParts } from '../shared/hash.js';
+import { entryFromParts } from '../hash.js';
 
 export async function streamToTemp(fs: FsAdapter, keys: DataKeys, partSize: number, temp: string, data: WriteData): Promise<IndexEntry> {
   const ids: string[] = [];

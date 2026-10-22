@@ -41,12 +41,17 @@ export interface IndexEntry {
 }
 export type IndexBody = Record<string, IndexEntry>;
 export type DeltaBody = Record<string, IndexEntry | null>;
+export interface DeltaPayload {
+  seq: number;
+  ops: DeltaBody;
+}
 
 export function blobIdsOf(entry: IndexEntry): string[] {
   return entry.parts === undefined ? [entry.id] : entry.parts;
 }
 
-export type ErrorWord = 'bad-request' | 'credentials' | 'expired' | 'not-allowed' | 'no-app' | 'exists' | 'gone' | 'stale' | 'too-big' | 'missing' | 'rate-limited';
+export type ErrorWord =
+  'bad-request' | 'credentials' | 'expired' | 'not-allowed' | 'unverified' | 'no-app' | 'exists' | 'gone' | 'stale' | 'too-big' | 'missing' | 'rate-limited' | 'over-quota';
 export type GoneReason = 'app' | 'account';
 export interface ErrorBody {
   error: ErrorWord;
@@ -108,6 +113,10 @@ export interface PasswordRequest {
   loginKey: string;
   passwordCopy: string;
   params?: Argon2Params;
+}
+
+export interface VerifyRequest {
+  code: string;
 }
 
 export interface AppInfo {

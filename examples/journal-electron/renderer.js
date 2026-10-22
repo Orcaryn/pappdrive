@@ -1,15 +1,29 @@
-const j = window.journal;
+import { createChannel, createClient } from 'pappdrive/rpc';
+
+const papp = createClient(createChannel(window.pappdrive));
 const $ = id => document.getElementById(id);
 const editor = $('editor');
+let files = null;
 
 function ignoreNotFound(err) {
   if (err.code !== 'not-found') throw err;
 }
 
-async function unwrap(promise) {
-  const result = await promise;
-  if (result.ok) return result.value;
-  throw Object.assign(new Error(result.error.message), { name: 'SyncError', ...result.error });
+function checkName(name) {
+  if (!name.endsWith('.md') || name.includes('/') || name.startsWith('.')) throw new Error(`"${name}" is not a journal entry. Use a name like 2026-10-17.md.`);
+  return name;
+}
+
+async function listEntries() {
+  const entries = await files.list();
+  return entries.filter(e => !e.dir && e.path.endsWith('.md')).sort((a, b) => b.path.localeCompare(a.path));
+}
+
+function readEntry(name) {
+  return files.readText(checkName(name)).catch(err => {
+    if (err.code !== 'not-found') throw err;
+    return '';
+  });
 }
 
 const LOCAL_ISO_DATE_LOCALE = 'en-CA';
@@ -28,7 +42,7 @@ function label(name) {
 }
 
 async function refreshList() {
-  const entries = await unwrap(j.list());
+  const entries = await listEntries();
   const list = $('entries');
   list.replaceChildren();
   const names = entries.map(e => e.path);
@@ -48,7 +62,7 @@ async function select(name) {
   await saveNow();
   current = name;
   $('title').textContent = label(name);
-  lastSaved = await unwrap(j.read(name));
+  lastSaved = await readEntry(name);
   editor.value = lastSaved;
   dirty = false;
   hideNotice();
@@ -62,9 +76,9 @@ async function saveNow() {
   const text = editor.value;
   lastSaved = text;
   if (text === '') {
-    await unwrap(j.remove(current)).catch(ignoreNotFound);
+    await files.remove(checkName(current)).catch(ignoreNotFound);
   } else {
-    await unwrap(j.write(current, text));
+    await files.write(checkName(current), text);
   }
 }
 
@@ -79,19 +93,19 @@ $('delete').onclick = () => deleteEntry().catch(showError);
 async function deleteEntry() {
   if (!current || !confirm(`Delete ${current} on every computer?`)) return;
   dirty = false;
-  await unwrap(j.remove(current)).catch(ignoreNotFound);
+  await files.remove(checkName(current)).catch(ignoreNotFound);
   await select(today());
 }
-$('sync').onclick = () => unwrap(j.sync()).catch(showError);
+$('sync').onclick = () => files.sync().catch(showError);
 $('signout').onclick = () => signOut().catch(showError);
 async function signOut() {
   if (!confirm('Sign out? Keep your password or recovery code: you need one of them to sign in again.')) return;
   await saveNow();
-  await unwrap(j.signOut());
+  await papp.signOut();
   location.reload();
 }
 
-j.onChange(async change => {
+async function onChange(change) {
   await refreshList();
   if (change.origin === 'conflict') {
     showNotice(`"${change.path}" was edited on two computers. The other computer's version kept the name. Yours is now "${change.copy}".`);
@@ -99,7 +113,7 @@ j.onChange(async change => {
     showNotice(`"${change.path}" cannot be saved on this computer (bad name). The other computers keep it.`);
   }
   if (change.path !== current) return;
-  const text = await unwrap(j.read(current));
+  const text = await readEntry(current);
   if (text === lastSaved || text === editor.value) return;
   lastSaved = text;
   if (!dirty) {
@@ -114,9 +128,7 @@ j.onChange(async change => {
       hideNotice();
     },
   });
-});
-
-j.onStatus(renderStatus);
+}
 
 function renderStatus(s) {
   if (s.deleted) {
@@ -158,10 +170,11 @@ function showError(err) {
 $('notice-close').onclick = hideNotice;
 
 async function signIn() {
-  const signUp = (await unwrap(j.pendingSignUp())) ?? (await accountForm());
+  const signUp = (await papp.pendingSignUp()) ?? (await accountForm());
   if (signUp) {
     await recoveryCodeSaved(signUp.recoveryCode);
-    await unwrap(j.confirmRecoveryCode());
+    await papp.confirmRecoveryCode();
+    await emailConfirmed();
   }
 }
 
@@ -170,12 +183,12 @@ function accountForm() {
   const password = $('password');
   const code = $('code');
   return new Promise(resolve => {
-    const attempt = action => unwrap(action).then(resolve, err => ($('sign-in-error').textContent = err.message));
+    const attempt = action => action.then(resolve, err => ($('sign-in-error').textContent = err.message));
     $('sign-in').onsubmit = event => {
       event.preventDefault();
-      attempt(code.value ? j.recover(email.value, code.value, password.value) : j.signIn(email.value, password.value));
+      attempt(code.value ? papp.recover(email.value, code.value, password.value) : papp.signIn(email.value, password.value));
     };
-    $('sign-up').onclick = () => attempt(j.signUp(email.value, password.value));
+    $('sign-up').onclick = () => attempt(papp.signUp(email.value, password.value));
   });
 }
 
@@ -191,15 +204,27 @@ function recoveryCodeSaved(recoveryCode) {
   });
 }
 
+function emailConfirmed() {
+  $('recovery').hidden = true;
+  $('verify').hidden = false;
+  return new Promise(resolve => {
+    const fail = err => ($('verify-error').textContent = err.message);
+    $('verify-done').onclick = () => papp.verifyEmail($('verify-code').value).then(resolve, fail);
+    $('verify-resend').onclick = () => papp.sendVerificationEmail().catch(fail);
+  });
+}
+
 async function start() {
-  if (!(await unwrap(j.signedIn()))) {
+  if (!(await papp.signedIn())) {
     $('sign-in-screen').hidden = false;
     await signIn();
     $('sign-in-screen').hidden = true;
   }
-  await unwrap(j.open());
+  files = await papp.open({ mode: 'visible', path: '~/Journal' });
+  files.watch(change => onChange(change).catch(showError));
+  files.onStatus(renderStatus);
   $('journal-screen').hidden = false;
-  renderStatus(await unwrap(j.status()));
+  renderStatus(await files.status());
   await select(today());
 }
 

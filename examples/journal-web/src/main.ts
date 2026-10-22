@@ -232,6 +232,7 @@ async function signIn() {
   if (signUp) {
     await recoveryCodeSaved(signUp.recoveryCode);
     await papp.confirmRecoveryCode();
+    await emailConfirmed();
   }
 }
 
@@ -264,6 +265,17 @@ function recoveryCodeSaved(recoveryCode: string): Promise<void> {
         resolve();
       }
     };
+  });
+}
+
+function emailConfirmed(): Promise<void> {
+  $('recovery').hidden = true;
+  $('verify').hidden = false;
+
+  return new Promise(resolve => {
+    const fail = (err: Error) => ($('verify-error').textContent = err.message);
+    $('verify-done').onclick = () => void papp.verifyEmail($<HTMLInputElement>('verify-code').value).then(resolve, fail);
+    $('verify-resend').onclick = () => void papp.sendVerificationEmail().catch(fail);
   });
 }
 

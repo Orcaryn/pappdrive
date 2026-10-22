@@ -1,4 +1,13 @@
-import { APP_NAME_RE, DEFAULT_ARGON2, type GoneReason, MIN_PASSWORD_LENGTH, normalizeEmail, type PasswordRequest, type TokenResponse } from '@pappdrive/protocol';
+import {
+  APP_NAME_RE,
+  DEFAULT_ARGON2,
+  type GoneReason,
+  MIN_PASSWORD_LENGTH,
+  normalizeEmail,
+  type PasswordRequest,
+  type TokenResponse,
+  type VerifyRequest,
+} from '@pappdrive/protocol';
 import { fromBase64, toBase64 } from '../shared/bytes.js';
 import { deriveFromPassword, lockDataKey } from '../shared/crypto.js';
 import { SyncError } from '../shared/errors.js';
@@ -8,7 +17,7 @@ import type { Files, KeyStore, Papp, PappOptions, PendingSignUp } from '../share
 import { deleteAccountWithPassword, deleteAppWithPassword, logInWithPassword, logInWithRecoveryCode, prepareSignUp } from './account.js';
 import { createApi } from './api.js';
 import { serverError } from './errors.js';
-import type { Folder } from './folder/shared/types.js';
+import type { Folder } from './folder/types.js';
 import { ApiError, request } from './http.js';
 import { createOpenFolders } from './open-folders.js';
 import { createSession } from './session.js';
@@ -26,17 +35,17 @@ export function createPappCore(opts: PappOptions, platform: Platform, keyStore: 
   let own: Folder | null = null;
   const api = createApi(server, read, {
     onGone: async reason => {
-      void folders.stopAll(f => f.markDeleted(reason));
+      void folders.stopAll(f => f.markDeleted(reason).catch(f.stopFailed));
       await session.clear();
     },
     onSignedOut: async () => {
       own = null;
-      void folders.stopAll(f => f.close());
+      void folders.stopAll(f => f.close().catch(f.stopFailed));
       await session.clear();
     },
   });
   const session = createSession(keyStore, `pappdrive:${server}:${app}`, api, platform);
-  const folders = createOpenFolders(api, platform);
+  const folders = createOpenFolders(api, platform, opts.syncOnBackground);
   const ready = session.restore();
 
   async function signUp(email: string, password: string): Promise<{ recoveryCode: string }> {
@@ -48,7 +57,7 @@ export function createPappCore(opts: PappOptions, platform: Platform, keyStore: 
     }
 
     const address = normalizeEmail(email);
-    const { signup, dataKey, recoveryCode } = await onServer('/auth/signup', () => prepareSignUp(server, address, password, { app, read }));
+    const { signup, dataKey, recoveryCode } = await onServer('/auth/signup', () => prepareSignUp(server, platform.argon2, address, password, { app, read }));
     const tokens = await onServer('/auth/signup', () => request<TokenResponse>(server, 'POST', '/auth/signup', signup));
     await session.save(address, tokens, dataKey, recoveryCode);
 
@@ -67,6 +76,16 @@ export function createPappCore(opts: PappOptions, platform: Platform, keyStore: 
     await session.confirmRecoveryCode();
   }
 
+  async function verifyEmail(code: string): Promise<void> {
+    await ready;
+    await onServer('/auth/verify', () => api.authed(token => request<void>(server, 'POST', '/auth/verify', { code } satisfies VerifyRequest, token)));
+  }
+
+  async function sendVerificationEmail(): Promise<void> {
+    await ready;
+    await onServer('/auth/verify/send', () => api.authed(token => request<void>(server, 'POST', '/auth/verify/send', undefined, token)));
+  }
+
   async function signIn(email: string, password: string): Promise<void> {
     await ready;
 
@@ -75,7 +94,7 @@ export function createPappCore(opts: PappOptions, platform: Platform, keyStore: 
     }
 
     const address = normalizeEmail(email);
-    const res = await onServer('/auth/login', () => logInWithPassword(server, address, password, { app, read }));
+    const res = await onServer('/auth/login', () => logInWithPassword(server, platform.argon2, address, password, { app, read }));
     await session.save(address, res, res.dataKey, null);
   }
 
@@ -98,7 +117,7 @@ export function createPappCore(opts: PappOptions, platform: Platform, keyStore: 
     await ready;
     checkPassword(newPassword);
     const s = session.confirmed();
-    const pk = await deriveFromPassword(s.email, newPassword, DEFAULT_ARGON2);
+    const pk = await deriveFromPassword(platform.argon2, s.email, newPassword, DEFAULT_ARGON2);
     const req: PasswordRequest = { loginKey: toBase64(pk.loginKey), passwordCopy: await lockDataKey(fromBase64(s.dataKey), pk.passwordKey), params: DEFAULT_ARGON2 };
     await onServer('/auth/password', () => api.authed(token => request<void>(server, 'POST', '/auth/password', req, token)));
   }
@@ -115,8 +134,7 @@ export function createPappCore(opts: PappOptions, platform: Platform, keyStore: 
     }
 
     own = null;
-    await folders.stopAll(f => f.close());
-    await session.clear();
+    await Promise.all([folders.stopAll(f => f.close()), session.clear()]);
   }
 
   async function deleteWith(password: string, reason: GoneReason): Promise<void> {
@@ -124,9 +142,9 @@ export function createPappCore(opts: PappOptions, platform: Platform, keyStore: 
     const { email } = session.confirmed();
 
     if (reason === 'app') {
-      await onServer('/app/delete', () => deleteAppWithPassword(server, email, password, app));
+      await onServer('/app/delete', () => deleteAppWithPassword(server, platform.argon2, email, password, app));
     } else {
-      await onServer('/account/delete', () => deleteAccountWithPassword(server, email, password));
+      await onServer('/account/delete', () => deleteAccountWithPassword(server, platform.argon2, email, password));
     }
 
     await Promise.all([folders.stopAll(f => f.markDeleted(reason)), session.clear()]);
@@ -189,6 +207,8 @@ export function createPappCore(opts: PappOptions, platform: Platform, keyStore: 
     signUp,
     pendingSignUp,
     confirmRecoveryCode,
+    verifyEmail,
+    sendVerificationEmail,
     signIn,
     recover,
     setPassword,

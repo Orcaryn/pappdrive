@@ -1,7 +1,7 @@
 import { concat } from '../../../shared/bytes.js';
 import { SyncError } from '../../../shared/errors.js';
 import { HIDDEN_DIR, joinPath } from '../../../shared/paths.js';
-import type { FsAdapter } from '../../../shared/platform.js';
+import type { FileStat, FsAdapter } from '../../../shared/platform.js';
 import type { FileInfo } from '../../../shared/types.js';
 
 const READ_CHUNK = 1024 * 1024;
@@ -26,23 +26,22 @@ export function notFound(path: string): SyncError {
 
 export function fileStream(fs: FsAdapter, p: string): ReadableStream<Uint8Array> {
   let off = 0;
-  let size: number | null = null;
+  let opened: FileStat | null = null;
 
   return new ReadableStream<Uint8Array>({
     async pull(c) {
-      if (size === null) {
-        const st = await fs.stat(p);
+      const st = (opened ??= await fs.stat(p));
 
-        if (!st) {
-          return c.error(notFound(p));
-        }
-
-        size = st.size;
+      if (!st) {
+        return c.error(notFound(p));
       }
 
-      const data = off < size ? await fs.read(p, off, Math.min(READ_CHUNK, size - off)) : new Uint8Array(0);
+      const data = await fs.read(p, off, Math.min(READ_CHUNK, st.size - off));
+      const now = await fs.stat(p);
 
-      if (data.length === 0) {
+      if (now?.size !== st.size || now.mtime !== st.mtime) {
+        return c.error(new SyncError('changed', `"${p}" changed while it was read, so the bytes read so far mix two versions. Read it again.`));
+      } else if (data.length === 0) {
         return c.close();
       }
 

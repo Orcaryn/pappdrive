@@ -1,18 +1,17 @@
 import type { GoneReason } from '@pappdrive/protocol';
+import { pathKey } from '../../shared/paths.js';
 import type { CoordinatorMessage } from '../../shared/platform.js';
 import type { Change, Status } from '../../shared/types.js';
-import { sameVersion } from './round/decide.js';
-import { pathKey } from '../../shared/paths.js';
-import type { LocalState } from './shared/state.js';
+import type { RoundOutcome } from './round/index.js';
+import { sameVersion, type LocalState } from './state.js';
 
 export type FolderStatus = ReturnType<typeof createStatus>;
 
 interface StatusDeps {
   readOnly: boolean;
   state: LocalState;
-  skippedPaths: () => string[];
   broadcast: (msg: CoordinatorMessage) => void;
-  isStopped: () => boolean;
+  signal: AbortSignal;
 }
 
 export function createStatus(d: StatusDeps) {
@@ -41,7 +40,7 @@ export function createStatus(d: StatusDeps) {
   }
 
   function setError(e: unknown): void {
-    if (d.isStopped()) {
+    if (d.signal.aborted) {
       return;
     }
 
@@ -49,9 +48,21 @@ export function createStatus(d: StatusDeps) {
     notify();
   }
 
+  function stopFailed(e: unknown): void {
+    live.error = (e as Error).message;
+    notify();
+  }
+
   function refresh(): void {
-    live.pending = countPending(d.readOnly, d.state, d.skippedPaths());
-    live.skipped = d.skippedPaths();
+    const { disk, synced } = d.state;
+    const frozen = new Set(live.skipped.map(pathKey));
+    const changedHere = [...disk].filter(([key, rec]) => {
+      const was = synced.get(key);
+
+      return !rec.skipped && !frozen.has(key) && (!was || !sameVersion(was, rec));
+    });
+    const removedHere = [...synced.keys()].filter(key => !disk.has(key) && !frozen.has(key));
+    live.pending = d.readOnly ? 0 : changedHere.length + removedHere.length;
     notify();
   }
 
@@ -60,14 +71,15 @@ export function createStatus(d: StatusDeps) {
     notify();
   }
 
-  function roundEnded(outcome: { downloadError: Error | null } | Error): void {
-    if (d.isStopped()) {
+  function roundEnded(outcome: Exclude<RoundOutcome, 'stopped'> | Error): void {
+    if (d.signal.aborted) {
       return;
     } else if (outcome instanceof Error) {
       live.error = outcome.message;
     } else {
       live.lastSync = Date.now();
       live.error = outcome.downloadError === null ? null : outcome.downloadError.message;
+      live.skipped = outcome.skipped;
     }
 
     live.syncing = false;
@@ -81,14 +93,10 @@ export function createStatus(d: StatusDeps) {
   }
 
   function scheduleRefresh(): void {
-    if (refreshTimer) {
-      return;
-    }
-
-    refreshTimer = setTimeout(() => {
+    refreshTimer ??= setTimeout(() => {
       refreshTimer = undefined;
 
-      if (!d.isStopped()) {
+      if (!d.signal.aborted) {
         refresh();
       }
     }, 20);
@@ -125,43 +133,17 @@ export function createStatus(d: StatusDeps) {
     notify,
     replace,
     setError,
+    stopFailed,
     refresh,
     roundStarted,
     roundEnded,
     markDeleted,
     scheduleRefresh,
-    stopRefresh: () => clearTimeout(refreshTimer),
     fire,
     deliver,
     watch,
     onStatus,
   };
-}
-
-function countPending(readOnly: boolean, state: LocalState, skippedPaths: string[]): number {
-  if (readOnly) {
-    return 0;
-  }
-
-  const { disk, synced } = state;
-  const frozen = new Set(skippedPaths.map(pathKey));
-  let n = 0;
-
-  for (const [key, d] of disk) {
-    const s = synced.get(key);
-
-    if (!d.skipped && !frozen.has(key) && (!s || !sameVersion(s, d))) {
-      n++;
-    }
-  }
-
-  for (const key of synced.keys()) {
-    if (!disk.has(key) && !frozen.has(key)) {
-      n++;
-    }
-  }
-
-  return n;
 }
 
 function callApp(fn: () => void): void {
