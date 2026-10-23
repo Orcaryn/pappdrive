@@ -1,4 +1,4 @@
-import type { AppInfo } from '@pappdrive/protocol';
+import { type AppInfo, HOSTED_SERVER } from '@pappdrive/protocol';
 import { request } from '../../papp/http.js';
 import type { Ctx } from '../shared/context.js';
 import { accessToken } from '../shared/sign-in.js';
@@ -23,5 +23,6 @@ export async function appsList(ctx: Ctx): Promise<void> {
 export async function appsCreate(ctx: Ctx, name: string): Promise<void> {
   await request(ctx.server, 'POST', '/apps', { name }, await accessToken(ctx));
   ctx.out(`Created the app "${name}".`);
-  ctx.out(`In the app: createPapp({ server: "${ctx.server}", app: "${name}" }), then sign in with your email and password.`);
+  const start = ctx.server === HOSTED_SERVER ? `createPapp({ app: "${name}" })` : `createPapp({ server: "${ctx.server}", app: "${name}" })`;
+  ctx.out(`In the app: ${start}, then sign in with your email and password.`);
 }

@@ -81,7 +81,6 @@ async function main() {
     console.log(usage);
     return;
   }
-  if (!server) throw new Error('Set PAPPDRIVE_SERVER or pass --server <url>, e.g. https://sync.pappdrive.com');
 
   const papp = createPapp({ server, app: APP });
   await papp.ready;

@@ -1,5 +1,6 @@
 import * as fsp from 'node:fs/promises';
 import { join } from 'node:path';
+import { HOSTED_SERVER } from '@pappdrive/protocol';
 import type { KeyStore } from '../../shared/types.js';
 import { configDir } from '../../node/dirs.js';
 import { nodeKeyStore } from '../../node/keystore.js';
@@ -32,11 +33,9 @@ export async function createCtx(flags: Flags): Promise<Ctx> {
     throw e;
   });
   const config = JSON.parse(configText) as CliConfig;
-  const raw = flags.server || process.env.PAPPDRIVE_SERVER || config.server;
+  const raw = flags.server || process.env.PAPPDRIVE_SERVER || config.server || HOSTED_SERVER;
 
-  if (!raw) {
-    throw new CliError('Which server? Pass --server https://sync.pappdrive.com, or set PAPPDRIVE_SERVER. After the first signup or login it is remembered.', 2);
-  } else if (!URL.canParse(raw.trim())) {
+  if (!URL.canParse(raw.trim())) {
     throw new CliError(`"${raw}" is not a server address. Give the full address, like --server https://sync.pappdrive.com.`, 2);
   }
 

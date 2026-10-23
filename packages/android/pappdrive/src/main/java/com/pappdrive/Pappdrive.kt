@@ -6,7 +6,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /** One synced, end-to-end encrypted folder for this app. Mirrors the JavaScript `Papp` API; see docs/api.md. */
-class Pappdrive(context: Context, server: String, app: String, read: List<String> = emptyList(), keyStore: KeyStore = KeystoreKeyStore(context), syncOnBackground: Boolean = false) {
+class Pappdrive(context: Context, server: String? = null, app: String, read: List<String> = emptyList(), keyStore: KeyStore = KeystoreKeyStore(context), syncOnBackground: Boolean = false) {
   private val host = Host(context, server, app, read, keyStore, syncOnBackground)
   private val listeners = Listeners()
 

@@ -6,16 +6,13 @@ import { fileURLToPath } from 'node:url';
 import { safeStorageKeyStore, canUseSafeStorage } from './keystore.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const SERVER = process.env.PAPPDRIVE_SERVER;
 const APP = 'journal';
 
 let papp;
 
 async function main() {
   await app.whenReady();
-  if (!SERVER) throw new Error('Set PAPPDRIVE_SERVER to your Pappdrive server, e.g. https://sync.pappdrive.com');
-
-  papp = createPapp({ server: SERVER, app: APP, keyStore: canUseSafeStorage() ? safeStorageKeyStore() : undefined });
+  papp = createPapp({ app: APP, keyStore: canUseSafeStorage() ? safeStorageKeyStore() : undefined });
   await papp.ready;
 
   const win = new BrowserWindow({ width: 960, height: 680, title: 'Journal', webPreferences: { preload: join(here, 'preload.cjs'), contextIsolation: true, sandbox: true } });

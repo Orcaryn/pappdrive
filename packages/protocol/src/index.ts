@@ -1,5 +1,6 @@
 export const API_PREFIX = '/v1';
 export const WATCH_PROTOCOL = 'pappdrive';
+export const HOSTED_SERVER = 'https://sync.pappdrive.com';
 
 export const PART_SIZE = 16 * 1024 * 1024;
 const VERSION_BYTES = 1;

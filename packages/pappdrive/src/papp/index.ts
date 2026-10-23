@@ -22,7 +22,7 @@ import { ApiError, request } from './http.js';
 import { createOpenFolders } from './open-folders.js';
 import { createSession } from './session.js';
 
-export function createPappCore(opts: PappOptions, platform: Platform, keyStore: KeyStore): Papp {
+export function createPappCore(opts: PappOptions & { server: string }, platform: Platform, keyStore: KeyStore): Papp {
   const { app } = opts;
   const server = opts.server.replace(/\/+$/, '');
   const read = opts.read ?? [];

@@ -11,28 +11,26 @@ The full API and every rule are on one page: `api.md` next to this file, if it w
 
 ## Steps
 
-1. **Server URL.** `https://sync.pappdrive.com`, the hosted service, unless the user runs their own server. Keep it in an environment variable or config, not hard-coded if avoidable.
-2. **Create the app.** Pick a name: lowercase letters, digits, `-`, `_`. Ask the user to run these in their own terminal, because they ask for a password:
+1. **Create the app.** Pick a name: lowercase letters, digits, `-`, `_`. Ask the user to run these in their own terminal, because they ask for a password:
    ```sh
-   export PAPPDRIVE_SERVER=https://sync.pappdrive.com
    npx pappdrive signup          # new user (shows the recovery code), or: npx pappdrive login
    npx pappdrive apps create <name>
    ```
-3. **Install:** `npm install pappdrive`. Native iOS: the Swift package in `packages/swift`. Native Android: the Gradle module in `packages/android`. Any other language on desktop: ship the `pappdrived` binary inside the app (`hosts.md`).
-4. **Start:**
+2. **Install:** `npm install pappdrive`. Native iOS: the Swift package in `packages/swift`. Native Android: the Gradle module in `packages/android`. Any other language on desktop: ship the `pappdrived` binary inside the app (`hosts.md`).
+3. **Start:**
    ```ts
    import { createPapp, SyncError } from "pappdrive"
-   const papp = createPapp({ server, app: "<name>" })
+   const papp = createPapp({ app: "<name>" })
    await papp.ready
    ```
-5. **Sign in** if `!papp.signedIn`:
+4. **Sign in** if `!papp.signedIn`:
    - UI: the library has none. Build a small form: email, password, sign in (`papp.signIn`), create account (`papp.signUp`), forgot password (`papp.recover` with the recovery code). After sign-up show the recovery code, make the user type back its last group, then `papp.confirmRecoveryCode()`, then ask for the 6-digit code from the sign-up email: `papp.verifyEmail(code)` (`papp.sendVerificationEmail()` for a new one). Nothing uploads until then. On start, `papp.pendingSignUp()` returns a code not yet confirmed. Show errors by `err.code`.
    - Terminal: ask for email and password (password not echoed), then `papp.signIn`. New users run `pappdrive signup`.
    - Electron: `papp` in the main process; the window talks to it through `pappdrive/rpc` (`serve` in main, `createClient` in the window), which carries every call, event and error `code` over IPC.
    - Native iOS or Android: the same calls on `Pappdrive` in Swift or Kotlin; `open()` is always private there. Errors are `PappError` / `PappException` with the same `code`.
-6. **Open:** desktop `await papp.open({ mode: "visible", path: "~/AppName" })` if the user should see the files; otherwise, and always in a browser or phone, `await papp.open({ mode: "private" })`.
-7. **Use files:** `files.write(path, data)`, `read`, `readText`, `readStream`, `list(dir?)`, `remove`. Writing `a/b.md` creates folder `a`.
-8. **React:** `files.watch(change => refresh())`. `files.onStatus(s => ...)` to show sync state; if `s.deleted` is set, the folder or account was deleted: show sign-in or a message.
+5. **Open:** desktop `await papp.open({ mode: "visible", path: "~/AppName" })` if the user should see the files; otherwise, and always in a browser or phone, `await papp.open({ mode: "private" })`.
+6. **Use files:** `files.write(path, data)`, `read`, `readText`, `readStream`, `list(dir?)`, `remove`. Writing `a/b.md` creates folder `a`.
+7. **React:** `files.watch(change => refresh())`. `files.onStatus(s => ...)` to show sync state; if `s.deleted` is set, the folder or account was deleted: show sign-in or a message.
 
 ## Rules every app must follow
 

@@ -129,7 +129,7 @@ Usage:
   pappdrive delete-account                            delete the account and every app, for good
 
 Options:
-  --server <url>   the sync server. Default: $PAPPDRIVE_SERVER, or the one used last
+  --server <url>   a self-hosted sync server. Default: $PAPPDRIVE_SERVER, the one used last, or the hosted service
   --email <email>  the account's email. Default: the one used last
   --recovery       export: use the recovery code instead of the password
 

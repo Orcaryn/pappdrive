@@ -1,7 +1,6 @@
 """A Python client for the pappdrive engine running as the `pappdrived` sidecar. See docs/hosts.md for the envelope."""
 
 import json
-import os
 import queue
 import subprocess
 import sys
@@ -47,8 +46,8 @@ class EngineExited(Exception):
 
 
 class Pappdrive:
-    def __init__(self, binary, server, app, key_store, read=()):
-        args = [binary, "--server", server, "--app", app] + (["--read", ",".join(read)] if read else [])
+    def __init__(self, binary, app, key_store, read=(), server=None):
+        args = [binary, "--app", app] + (["--server", server] if server else []) + (["--read", ",".join(read)] if read else [])
         self.process = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
         self.answers = {
             "host.keystore.get": lambda p: key_store.get(p["name"]),
@@ -139,8 +138,7 @@ class Pappdrive:
 
 if __name__ == "__main__":
     binary = sys.argv[1] if len(sys.argv) > 1 else "pappdrived"
-    server = os.environ.get("PAPPDRIVE_SERVER", "https://sync.pappdrive.com")
-    papp = Pappdrive(binary, server, "journal", FileKeyStore(Path.home() / ".config" / "pappdrive-python"))
+    papp = Pappdrive(binary, "journal", FileKeyStore(Path.home() / ".config" / "pappdrive-python"))
     print("signed in:", papp.call("signedIn"))
     try:
         papp.call("open", where={"mode": "private"})

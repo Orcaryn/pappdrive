@@ -20,7 +20,7 @@ import org.json.JSONObject
 
 /** Runs the pappdrive engine in a WebView that is never shown and carries the RPC envelope across the JavaScript bridge. */
 @SuppressLint("SetJavaScriptEnabled")
-internal class Host(context: Context, server: String, app: String, read: List<String>, keyStore: KeyStore, private val syncOnBackground: Boolean) {
+internal class Host(context: Context, server: String?, app: String, read: List<String>, keyStore: KeyStore, private val syncOnBackground: Boolean) {
   val channel = Channel()
   private val appContext = context.applicationContext
   private val main = Handler(Looper.getMainLooper())
@@ -30,7 +30,7 @@ internal class Host(context: Context, server: String, app: String, read: List<St
   private val assets = WebViewAssetLoader.Builder().addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(appContext)).build()
   private val start = """
     try {
-      pappdrive.start(${JSONObject().put("server", server).put("app", app).put("read", JSONArray(read)).put("syncOnBackground", syncOnBackground)}, text => host.postMessage(text));
+      pappdrive.start(${JSONObject().putOpt("server", server).put("app", app).put("read", JSONArray(read)).put("syncOnBackground", syncOnBackground)}, text => host.postMessage(text));
       host.postMessage('{"method":"host.ready","params":{}}');
     } catch (e) {
       host.postMessage(JSON.stringify({ method: 'host.failed', params: { message: String(e) } }));
