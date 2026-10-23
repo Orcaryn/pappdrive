@@ -1,7 +1,7 @@
 import type { GoneReason } from '@pappdrive/protocol';
 
 export interface PappOptions {
-  server: string;
+  server?: string;
   app: string;
   read?: string[];
   keyStore?: KeyStore;

@@ -903,6 +903,29 @@ var pappdrive = (() => {
     start: () => start
   });
 
+  // ../protocol/src/index.ts
+  var API_PREFIX = "/v1";
+  var WATCH_PROTOCOL = "pappdrive";
+  var HOSTED_SERVER = "https://sync.pappdrive.com";
+  var PART_SIZE = 16 * 1024 * 1024;
+  var VERSION_BYTES = 1;
+  var NONCE_BYTES = 12;
+  var GCM_TAG_BYTES = 16;
+  var BLOB_OVERHEAD = VERSION_BYTES + NONCE_BYTES + GCM_TAG_BYTES;
+  var MAX_BLOB_SIZE = PART_SIZE + BLOB_OVERHEAD;
+  var ID_RE = /^[0-9a-f]{64}$/;
+  var APP_NAME_RE = /^[a-z0-9_-]{1,64}$/;
+  var MIN_PASSWORD_LENGTH = 12;
+  var DEFAULT_ARGON2 = { m: 65536, t: 3, p: 4 };
+  var SWEEP_GRACE_MS = 24 * 36e5;
+  var DELTA_MAX = 100;
+  function blobIdsOf(entry) {
+    return entry.parts === void 0 ? [entry.id] : entry.parts;
+  }
+  function normalizeEmail(email) {
+    return email.trim().toLowerCase();
+  }
+
   // src/shared/bytes.ts
   var utf8 = new TextEncoder();
   var fromUtf8 = new TextDecoder();
@@ -1329,28 +1352,6 @@ var pappdrive = (() => {
         `The browser gives this page no private file storage (OPFS): ${String(e)}. It needs a secure page (https or localhost), and private windows often turn it off. Open the app in a normal window over https.`
       );
     }
-  }
-
-  // ../protocol/src/index.ts
-  var API_PREFIX = "/v1";
-  var WATCH_PROTOCOL = "pappdrive";
-  var PART_SIZE = 16 * 1024 * 1024;
-  var VERSION_BYTES = 1;
-  var NONCE_BYTES = 12;
-  var GCM_TAG_BYTES = 16;
-  var BLOB_OVERHEAD = VERSION_BYTES + NONCE_BYTES + GCM_TAG_BYTES;
-  var MAX_BLOB_SIZE = PART_SIZE + BLOB_OVERHEAD;
-  var ID_RE = /^[0-9a-f]{64}$/;
-  var APP_NAME_RE = /^[a-z0-9_-]{1,64}$/;
-  var MIN_PASSWORD_LENGTH = 12;
-  var DEFAULT_ARGON2 = { m: 65536, t: 3, p: 4 };
-  var SWEEP_GRACE_MS = 24 * 36e5;
-  var DELTA_MAX = 100;
-  function blobIdsOf(entry) {
-    return entry.parts === void 0 ? [entry.id] : entry.parts;
-  }
-  function normalizeEmail(email) {
-    return email.trim().toLowerCase();
   }
 
   // src/shared/crypto.ts
@@ -5022,7 +5023,7 @@ var pappdrive = (() => {
         await Promise.all([...background].map((cb) => cb()));
       }
     });
-    serve(createPappCore(opts, platform, hostKeyStore(channel)), channel);
+    serve(createPappCore({ ...opts, server: opts.server ?? HOSTED_SERVER }, platform, hostKeyStore(channel)), channel);
   }
   function receive(text) {
     receiveFromHost(text);

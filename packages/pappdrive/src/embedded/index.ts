@@ -1,3 +1,4 @@
+import { HOSTED_SERVER } from '@pappdrive/protocol';
 import { openOpfs } from '../browser/opfs/index.js';
 import { createPappCore } from '../papp/index.js';
 import { createChannel } from '../rpc/channel.js';
@@ -48,7 +49,7 @@ export function start(opts: StartOptions, send: (text: string) => void): void {
       await Promise.all([...background].map(cb => cb()));
     },
   });
-  serve(createPappCore(opts, platform, hostKeyStore(channel)), channel);
+  serve(createPappCore({ ...opts, server: opts.server ?? HOSTED_SERVER }, platform, hostKeyStore(channel)), channel);
 }
 
 export function receive(text: string): void {

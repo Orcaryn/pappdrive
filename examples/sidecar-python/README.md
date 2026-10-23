@@ -7,7 +7,7 @@ python3 pappdrive.py ../../packages/pappdrive/dist/pappdrived
 ```
 
 ```python
-papp = Pappdrive("pappdrived", "https://sync.pappdrive.com", "journal", FileKeyStore("~/.config/my-app"))
+papp = Pappdrive("pappdrived", "journal", FileKeyStore("~/.config/my-app"))
 papp.call("signIn", email=email, password=password)
 files = papp.call("open", where={"mode": "visible", "path": "~/Journal"})
 papp.call("files.writeText", files=files, path="2026-10-21.md", text="Hello")

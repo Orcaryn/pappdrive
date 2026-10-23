@@ -1,11 +1,9 @@
 import Pappdrive
 import SwiftUI
 
-let server = "https://sync.pappdrive.com"
-
 @main
 struct JournalApp: App {
-  @StateObject private var model = JournalModel(papp: Pappdrive(server: server, app: "journal"))
+  @StateObject private var model = JournalModel(papp: Pappdrive(app: "journal"))
 
   var body: some Scene {
     WindowGroup {

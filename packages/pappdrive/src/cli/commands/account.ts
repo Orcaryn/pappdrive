@@ -1,4 +1,4 @@
-import type { RefreshResponse, TokenResponse, VerifyRequest } from '@pappdrive/protocol';
+import { HOSTED_SERVER, type RefreshResponse, type TokenResponse, type VerifyRequest } from '@pappdrive/protocol';
 import { prepareSignUp } from '../../papp/account.js';
 import { hashWasmArgon2 } from '../../shared/argon2.js';
 import { request } from '../../papp/http.js';
@@ -40,7 +40,8 @@ export async function signup(ctx: Ctx): Promise<void> {
   await enterCode(ctx, res.accessToken);
 
   if (app !== undefined) {
-    ctx.out(`The app "${app}" is created. In the app: createPapp({ server: "${ctx.server}", app: "${app}" }), then sign in with this email and password.`);
+    const start = ctx.server === HOSTED_SERVER ? `createPapp({ app: "${app}" })` : `createPapp({ server: "${ctx.server}", app: "${app}" })`;
+    ctx.out(`The app "${app}" is created. In the app: ${start}, then sign in with this email and password.`);
   } else {
     ctx.out('Next: create an app with `pappdrive apps create <name>`.');
   }

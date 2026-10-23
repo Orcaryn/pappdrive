@@ -1,3 +1,4 @@
+import { HOSTED_SERVER } from '@pappdrive/protocol';
 import { hashWasmArgon2 } from '../shared/argon2.js';
 import { SyncError } from '../shared/errors.js';
 import { createPappCore } from '../papp/index.js';
@@ -8,7 +9,7 @@ import { indexedDbKeyStore } from './keystore.js';
 import { openOpfs } from './opfs/index.js';
 
 export function createPapp(opts: PappOptions): Papp {
-  return createPappCore(opts, browserPlatform, opts.keyStore ?? indexedDbKeyStore());
+  return createPappCore({ ...opts, server: opts.server ?? HOSTED_SERVER }, browserPlatform, opts.keyStore ?? indexedDbKeyStore());
 }
 
 const browserPlatform: Platform = {

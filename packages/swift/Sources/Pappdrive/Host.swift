@@ -16,7 +16,7 @@ final class Host {
   var reopens: [String: () -> Void] = [:]
   private var observers: [NSObjectProtocol] = []
 
-  init(server: String, app: String, read: [String], keyStore: KeyStore, syncOnBackground: Bool) {
+  init(server: String?, app: String, read: [String], keyStore: KeyStore, syncOnBackground: Bool) {
     let start = """
       try {
         pappdrive.start(\(json(StartOptions(server: server, app: app, read: read, syncOnBackground: syncOnBackground))), text => webkit.messageHandlers.pappdrive.postMessage(text));
@@ -176,7 +176,7 @@ private final class Bridge: NSObject, WKScriptMessageHandler, WKURLSchemeHandler
 }
 
 private struct StartOptions: Encodable {
-  let server: String
+  let server: String?
   let app: String
   let read: [String]
   let syncOnBackground: Bool

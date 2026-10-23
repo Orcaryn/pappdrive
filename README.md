@@ -5,7 +5,7 @@ Pappdrive gives a personal app one folder of plain files that stays the same on 
 ```ts
 import { createPapp } from "pappdrive"
 
-const papp = createPapp({ server: "https://sync.pappdrive.com", app: "journal" })
+const papp = createPapp({ app: "journal" })
 await papp.ready
 if (!papp.signedIn) await papp.signIn(email, password) // from the app's own form
 const files = await papp.open({ mode: "private" })
@@ -42,7 +42,7 @@ The examples are not part of the pnpm workspace. Each has its own `package.json`
 
 ## Status
 
-The hosted server runs at `https://sync.pappdrive.com`; the site is [pappdrive.com](https://pappdrive.com). The `pappdrive` package is not yet on npm. Before sign-up opens to others: a per-user quota, an upload rate limit (see the spec, Limits) and billing.
+The hosted server runs at `https://sync.pappdrive.com`; the site is [pappdrive.com](https://pappdrive.com). The `pappdrive` package is on npm. Before sign-up opens to others: a per-user quota, an upload rate limit (see the spec, Limits) and billing.
 
 ## Development
 

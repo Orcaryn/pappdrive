@@ -73,7 +73,7 @@ Each mirrors the function of the same name in [api.md](api.md).
 ```swift
 import Pappdrive
 
-let papp = Pappdrive(server: "https://sync.pappdrive.com", app: "journal")
+let papp = Pappdrive(app: "journal")
 if try await !papp.signedIn() { try await papp.signIn(email: email, password: password) }
 let files = try await papp.open()
 try await files.write("2026-10-21.md", text: "Hello")
@@ -96,7 +96,7 @@ let stop = files.watch { change in ... }
 ## Android: `packages/android`
 
 ```kotlin
-val papp = Pappdrive(context, server = "https://sync.pappdrive.com", app = "journal")
+val papp = Pappdrive(context, app = "journal")
 if (!papp.signedIn()) papp.signIn(email, password)
 val files = papp.open()
 files.write("2026-10-21.md", "Hello")
@@ -120,7 +120,7 @@ val stop = files.watch { change -> ... }
 A single executable built from the Node adapter. The app ships it inside its own bundle and spawns it; nothing is installed separately.
 
 ```
-pappdrived --server https://sync.pappdrive.com --app journal [--read other-app] [--sync-on-background]
+pappdrived --app journal [--server <url>] [--read other-app] [--sync-on-background]
 ```
 
 - Write requests to its stdin, one per line. Read replies, notifications and the engine's own `host.keystore.*` requests from its stdout, one per line; answer those on stdin. Warnings go to stderr.

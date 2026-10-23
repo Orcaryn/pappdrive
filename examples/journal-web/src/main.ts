@@ -1,15 +1,9 @@
 import { createPapp, SyncError, type Change, type Status } from 'pappdrive';
 import './style.css';
 
-const server = import.meta.env.VITE_PAPPDRIVE_SERVER as string | undefined;
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const editor = $<HTMLTextAreaElement>('editor');
-
-if (!server) {
-  throw new Error('Set VITE_PAPPDRIVE_SERVER in .env, e.g. https://sync.pappdrive.com');
-}
-
-const papp = createPapp({ server, app: 'journal' });
+const papp = createPapp({ app: 'journal' });
 
 const ignoreNotFound = (e: unknown) => {
   if (!(e instanceof SyncError && e.code === 'not-found')) {

@@ -6,7 +6,6 @@ A journal that syncs between your computers. Each day is one Markdown file in `~
 
 ```sh
 npm install
-export PAPPDRIVE_SERVER=https://sync.pappdrive.com   # your Pappdrive server
 npx pappdrive signup        # first time only; or: npx pappdrive login
 npx pappdrive apps create journal
 

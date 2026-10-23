@@ -6,7 +6,7 @@ public final class Pappdrive {
   private let host: Host
   private let listeners = Listeners()
 
-  public init(server: String, app: String, read: [String] = [], keyStore: KeyStore = KeychainKeyStore(), syncOnBackground: Bool = false) {
+  public init(server: String? = nil, app: String, read: [String] = [], keyStore: KeyStore = KeychainKeyStore(), syncOnBackground: Bool = false) {
     host = Host(server: server, app: app, read: read, keyStore: keyStore, syncOnBackground: syncOnBackground)
     host.channel.on("change") { [listeners] (event: ChangeEvent) in listeners.deliver(event.files, event.change) }
     host.channel.on("status") { [listeners] (event: StatusEvent) in listeners.deliver(event.files, event.status) }
