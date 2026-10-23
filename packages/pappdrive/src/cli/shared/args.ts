@@ -109,7 +109,7 @@ export function parseArgs(argv: string[]): Parsed {
   const app = args[0] ?? flags.app;
 
   if (app !== undefined && !APP_NAME_RE.test(app)) {
-    throw new CliError(`"${app}" is not a valid app name. Use lowercase letters, digits and -, 1 to 64 characters, like my-notes.`, 2);
+    throw new CliError(`"${app}" is not a valid app name. Use lowercase letters, digits, - and _, 1 to 64 characters, like my-notes.`, 2);
   }
 
   return { command, args, flags };
@@ -123,7 +123,7 @@ Usage:
   pappdrive login [--email <email>]                   sign in on this computer
   pappdrive logout                                    sign out on this computer
   pappdrive apps list                                 the apps in your account
-  pappdrive apps create <name>                        create an app (lowercase letters, digits, -)
+  pappdrive apps create <name>                        create an app (lowercase letters, digits, -, _)
   pappdrive export <app> <dir> [--recovery]           download and decrypt an app's whole folder into an empty folder
   pappdrive delete-app <name>                         delete an app's folder everywhere, for good
   pappdrive delete-account                            delete the account and every app, for good

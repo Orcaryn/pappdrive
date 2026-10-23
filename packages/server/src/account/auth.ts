@@ -1,6 +1,7 @@
 import { DEFAULT_ARGON2, type LoginResponse, type ParamsResponse, type RecoverResponse, type RefreshResponse, type TokenResponse } from '@pappdrive/protocol';
 import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
+import { v7 as uuidv7 } from 'uuid';
 import { bearer } from '../shared/access';
 import { keys } from '../shared/bucket';
 import { fromBase64, sha256Hex, toBase64Url } from '../shared/bytes';
@@ -44,7 +45,7 @@ export async function signup(env: Env, request: Request): Promise<Response> {
   }
 
   const now = Date.now();
-  const user = crypto.randomUUID();
+  const user = uuidv7();
   await sendCode(env, user, email);
   const install = await newInstall(env, user, app, read);
 
@@ -163,7 +164,7 @@ async function signIn(
 
 async function newInstall(env: Env, user: string, app: string, read: string[]) {
   const refreshBytes = crypto.getRandomValues(new Uint8Array(32));
-  const id = crypto.randomUUID();
+  const id = uuidv7();
   const insert = drizzle(env.DB)
     .insert(installs)
     .values({ id, userId: user, app, refreshHash: await sha256Hex(refreshBytes), read, created: Date.now() });

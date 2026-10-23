@@ -1,6 +1,7 @@
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'tsup';
 
-const external = ['@parcel/watcher', '@napi-rs/keyring', 'hash-wasm', 'ignore', 'fflate'];
+const external = ['@parcel/watcher', '@napi-rs/keyring', 'hash-wasm', 'ignore'];
 
 export default defineConfig([
   {
@@ -20,6 +21,7 @@ export default defineConfig([
     platform: 'browser',
     target: 'es2022',
     noExternal: [/.*/],
+    banner: { js: `/*! Bundles ignore (https://github.com/kaelzhang/node-ignore):\n${readFileSync('node_modules/ignore/LICENSE-MIT', 'utf8')}*/` },
     outExtension: () => ({ js: '.js' }),
   },
 ]);

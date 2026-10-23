@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
   name: "Pappdrive",
-  platforms: [.iOS(.v16)],
+  platforms: [.iOS("16.4")],
   products: [.library(name: "Pappdrive", targets: ["Pappdrive"])],
   targets: [
     .target(name: "Pappdrive", path: "packages/swift/Sources/Pappdrive", resources: [.copy("Resources/pappdrive.js"), .copy("Resources/index.html")]),

@@ -2,7 +2,7 @@ name: Journal
 options:
   bundleIdPrefix: com.pappdrive.example
   deploymentTarget:
-    iOS: '16.0'
+    iOS: '16.4'
   xcodeVersion: '26.0'
 packages:
   Pappdrive:

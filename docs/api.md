@@ -50,7 +50,7 @@ npx pappdrive apps list                # check
 ```
 
 - The `pappdrive` command ships with the `pappdrive` package: `npx pappdrive ...` in a project that has it installed, or `npm install -g pappdrive` for a global `pappdrive`.
-- App names: lowercase letters, digits and `-`, 1 to 64 characters. Example: `journal`, `my-notes`.
+- App names: lowercase letters, digits, `-` and `_`, 1 to 64 characters. Example: `journal`, `my-notes`.
 - The commands ask for a password in the terminal. A coding agent cannot type it. Ask the user to run them, or to run them with you watching.
 - When stdin is not a terminal, the questions read their answers from it, one per line: `printf '%s\n%s\n' "$EMAIL" "$PASSWORD" | pappdrive login`. `signup` cannot be piped this way: it shows the recovery code first and then asks for its last group.
 - Sign-up inside the app's own form also creates the app it names. So a brand new user can skip the CLI. An existing user who adds a new app must run `pappdrive apps create <name>` first. Otherwise sign-in fails with `no-app`.

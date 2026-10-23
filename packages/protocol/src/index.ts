@@ -8,7 +8,7 @@ const GCM_TAG_BYTES = 16;
 export const BLOB_OVERHEAD = VERSION_BYTES + NONCE_BYTES + GCM_TAG_BYTES;
 export const MAX_BLOB_SIZE = PART_SIZE + BLOB_OVERHEAD;
 export const ID_RE = /^[0-9a-f]{64}$/;
-export const APP_NAME_RE = /^[a-z0-9-]{1,64}$/;
+export const APP_NAME_RE = /^[a-z0-9_-]{1,64}$/;
 export const MIN_PASSWORD_LENGTH = 12;
 
 export interface Argon2Params {

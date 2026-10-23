@@ -12,7 +12,7 @@ The full API and every rule are on one page: `api.md` next to this file, if it w
 ## Steps
 
 1. **Server URL.** `https://sync.pappdrive.com`, the hosted service, unless the user runs their own server. Keep it in an environment variable or config, not hard-coded if avoidable.
-2. **Create the app.** Pick a name: lowercase letters, digits, `-`. Ask the user to run these in their own terminal, because they ask for a password:
+2. **Create the app.** Pick a name: lowercase letters, digits, `-`, `_`. Ask the user to run these in their own terminal, because they ask for a password:
    ```sh
    export PAPPDRIVE_SERVER=https://sync.pappdrive.com
    npx pappdrive signup          # new user (shows the recovery code), or: npx pappdrive login

@@ -177,7 +177,7 @@ POST /apps
   → 409 exists                     the user already has this name
 ```
 - Any of the user's access tokens works, with or without an app.
-- A bad name: 400 `bad-request`. Names are lowercase letters, digits and `-`, 1 to 64 characters.
+- A bad name: 400 `bad-request`. Names are lowercase letters, digits, `-` and `_`, 1 to 64 characters.
 - Deleting an app is `/app/delete`, below. It frees the name.
 ### Blobs
 ```

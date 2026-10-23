@@ -84,7 +84,7 @@ let stop = files.watch { change in ... }
 
 - `write(_:data:)` and `read(_:)` hold the whole file in memory. For big files, stream through a file: `write(_:contentsOf:)` and `read(_:to:)` keep one 1 MiB slice in memory.
 
-- Add the package by the repository URL; `Package.swift` is at the root. iOS 16 and up. The engine's page loads from `pappdrive://app`, a scheme the package serves from its bundle; WebKit treats scheme-handler origins as secure, which OPFS and WebCrypto require.
+- Add the package by the repository URL; `Package.swift` is at the root. iOS 16.4 and up. The engine's page loads from `pappdrive://app`, a scheme the package serves from its bundle; WebKit treats scheme-handler origins as secure, which OPFS and WebCrypto require.
 - The web view attaches itself to the key window at zero size. WebKit throttles pages whose view is not in a window.
 - Errors are `PappError` with `code`, `message`, `retryAfter`, `reason`. After iOS kills the web content process, pending calls fail with code `restarted`; the engine reloads, restores the session and reopens the folders the app had open. Retry the call. A reopen that fails fails the folder's later calls with its error.
 - The engine stops when the last reference to the `Pappdrive` and its `Files` goes away.
