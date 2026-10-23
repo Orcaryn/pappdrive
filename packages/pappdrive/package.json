@@ -73,6 +73,9 @@
     "docs"
   ],
   "sideEffects": false,
+  "engines": {
+    "node": ">=22"
+  },
   "devDependencies": {
     "@pappdrive/protocol": "workspace:*"
   }
