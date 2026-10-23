@@ -6,7 +6,8 @@
   "homepage": "https://pappdrive.com",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Orcaryn/pappdrive.git"
+    "url": "git+https://github.com/Orcaryn/pappdrive.git",
+    "directory": "packages/pappdrive"
   },
   "keywords": [
     "sync",
@@ -55,12 +56,11 @@
   "scripts": {
     "typecheck": "tsc -p .",
     "test": "vitest run",
-    "build": "tsup && mkdir -p docs/skill && cp ../../docs/api.md ../../docs/hosts.md ../../docs/llms.txt docs/ && cp ../../docs/skill/SKILL.md docs/skill/ && cp dist/embedded.js ../swift/Sources/Pappdrive/Resources/pappdrive.js && cp dist/embedded.js ../android/pappdrive/src/main/assets/pappdrive.js",
+    "build": "tsup && cp ../../LICENSE . && mkdir -p docs/skill && cp ../../docs/api.md ../../docs/hosts.md ../../docs/llms.txt docs/ && cp ../../docs/skill/SKILL.md docs/skill/ && cp dist/embedded.js ../swift/Sources/Pappdrive/Resources/pappdrive.js && cp dist/embedded.js ../android/pappdrive/src/main/assets/pappdrive.js",
     "prepack": "pnpm run build",
     "build:sidecar": "bun build --compile --target=bun-darwin-arm64 src/sidecar/index.ts --outfile dist/pappdrived-arm64 && bun build --compile --target=bun-darwin-x64 src/sidecar/index.ts --outfile dist/pappdrived-x64 && lipo -create dist/pappdrived-arm64 dist/pappdrived-x64 -output dist/pappdrived && codesign -f -s - dist/pappdrived && rm dist/pappdrived-arm64 dist/pappdrived-x64"
   },
   "dependencies": {
-    "fflate": "^0.8.3",
     "hash-wasm": "^4.12.0",
     "ignore": "7.0.12"
   },

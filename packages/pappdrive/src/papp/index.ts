@@ -29,7 +29,7 @@ export function createPappCore(opts: PappOptions, platform: Platform, keyStore: 
   const bad = [app, ...read].find(n => !APP_NAME_RE.test(n));
 
   if (bad !== undefined) {
-    throw new SyncError('no-app', `"${bad}" is not a valid app name. App names are lowercase letters, digits and -, 1 to 64 characters.`);
+    throw new SyncError('no-app', `"${bad}" is not a valid app name. App names are lowercase letters, digits, - and _, 1 to 64 characters.`);
   }
 
   let own: Folder | null = null;

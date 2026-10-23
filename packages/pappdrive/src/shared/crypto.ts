@@ -1,6 +1,5 @@
-import { gunzipSync, gzipSync } from 'fflate';
 import { type Argon2Params, type DeltaPayload, type IndexBody, normalizeEmail } from '@pappdrive/protocol';
-import { withPlainBuffer, concat, fromBase64, toBase64, toHex, fromHex, utf8, fromUtf8 } from './bytes.js';
+import { withPlainBuffer, concat, fromBase64, toBase64, toHex, fromHex, utf8 } from './bytes.js';
 import { SyncError } from './errors.js';
 
 const subtle = globalThis.crypto.subtle;
@@ -99,18 +98,20 @@ export interface BodyPlace {
 }
 
 export async function encodeBody(keys: DataKeys, place: BodyPlace, body: Body): Promise<string> {
-  return toBase64(await seal(keys.enc, gzipSync(utf8.encode(JSON.stringify(body))), utf8.encode(`pappdrive ${place.kind}|${place.app}|${place.base}`)));
+  const gzipped = new Blob([JSON.stringify(body)]).stream().pipeThrough(new CompressionStream('gzip'));
+
+  return toBase64(await seal(keys.enc, new Uint8Array(await new Response(gzipped).arrayBuffer()), utf8.encode(`pappdrive ${place.kind}|${place.app}|${place.base}`)));
 }
 
 export async function decodeBody<T extends Body>(keys: DataKeys, place: BodyPlace, b64: string): Promise<T> {
-  const gzip = await unseal(
+  const gzipped = await unseal(
     keys.enc,
     fromBase64(b64),
     new SyncError('server', `The ${place.kind} of "${place.app}" did not decrypt with this account's key, or the server sent one that belongs elsewhere.`),
     utf8.encode(`pappdrive ${place.kind}|${place.app}|${place.base}`)
   );
 
-  return JSON.parse(fromUtf8.decode(gunzipSync(gzip))) as T;
+  return new Response(new Blob([gzipped]).stream().pipeThrough(new DecompressionStream('gzip'))).json();
 }
 
 async function seal(key: CryptoKey, plaintext: Uint8Array, aad = new Uint8Array(0)): Promise<Uint8Array<ArrayBuffer>> {

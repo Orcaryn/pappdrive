@@ -15,7 +15,7 @@ A Cloudflare Worker in the operator's account. Kept thin by design.
 - An app must be created before it can sign in. The user creates it through the API or with the command-line tool. A dashboard comes later.
 - An app name is unique per user. Creating a name the user already has is refused. So two different apps never share a folder.
 - All installed copies of the same app share its folder. That is how one app syncs across devices.
-- Names: lowercase letters, digits and `-`, 1 to 64 characters. The name is part of the R2 path.
+- Names: lowercase letters, digits, `-` and `_`, 1 to 64 characters. The name is part of the R2 path.
 - Sign-up also creates the app it names. A new account has no apps yet, so nothing can clash.
 - Signing in to an app that does not exist is refused.
 - A read list may only name apps that exist.

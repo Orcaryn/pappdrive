@@ -42,7 +42,7 @@ export function describeError(e: unknown, server: string, during?: Command | 're
         return 'The server did not allow this with the current sign-in. Run `pappdrive login`, then the command again.';
       case 'bad-request':
         return during === 'apps create' ?
-            'The server refused the app name. App names use lowercase letters, digits and -, 1 to 64 characters, like my-notes.'
+            'The server refused the app name. App names use lowercase letters, digits, - and _, 1 to 64 characters, like my-notes.'
           : 'The server refused the request as malformed. Update pappdrive, then try again.';
       default:
         return `The server answered ${e.status} ${e.error}. Try again in a minute; if it keeps happening, the server may be down.`;

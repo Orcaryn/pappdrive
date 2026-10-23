@@ -6,7 +6,7 @@ export const plans = sqliteTable('plans', {
 });
 
 export const users = sqliteTable('users', {
-  id: text().primaryKey(), // random UUID, also the R2 prefix
+  id: text().primaryKey(), // UUIDv7, also the R2 prefix
   email: text().notNull().unique(), // trimmed and lowercased
   loginHash: text('login_hash').notNull(), // SHA-256 hex of the login key bytes
   recoveryHash: text('recovery_hash').notNull(), // SHA-256 hex of the recovery login key bytes
@@ -40,7 +40,7 @@ export const apps = sqliteTable(
 export const installs = sqliteTable(
   'installs',
   {
-    id: text().primaryKey(), // install id, random UUID
+    id: text().primaryKey(), // install id, UUIDv7
     userId: text('user_id').notNull(),
     app: text().notNull().default(''), // '' for a token without an app
     refreshHash: text('refresh_hash').unique(), // SHA-256 hex of the refresh token
